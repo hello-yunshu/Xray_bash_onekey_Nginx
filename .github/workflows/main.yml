@@ -12,6 +12,12 @@ jobs:
   check-versions:
     runs-on: ubuntu-latest
 
+    outputs:
+      should_run_build: ${{ steps.compare_versions.outputs.trigger_build }}
+      NGINX_VERSION: ${{ steps.get_current_versions.outputs.nginx_online_version }}
+      OPENSSL_VERSION: ${{ steps.get_current_versions.outputs.openssl_online_version }}
+      JEMALLOC_VERSION: ${{ steps.get_current_versions.outputs.jemalloc_online_version }}
+
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
@@ -31,6 +37,9 @@ jobs:
         echo "NGINX_VERSION=$nginx_online_version" >> $GITHUB_ENV
         echo "OPENSSL_VERSION=$openssl_online_version" >> $GITHUB_ENV
         echo "JEMALLOC_VERSION=$jemalloc_online_version" >> $GITHUB_ENV
+        echo "::set-output name=nginx_online_version::$nginx_online_version"
+        echo "::set-output name=openssl_online_version::$openssl_online_version"
+        echo "::set-output name=jemalloc_online_version::$jemalloc_online_version"
         echo "$get_current_versions_all" > .github/current_versions.json
 
     - name: Read previous versions from file
@@ -99,7 +108,7 @@ jobs:
           echo "No version changes detected."
         fi
 
-        echo "trigger_build=$trigger_build" >> $GITHUB_OUTPUT
+        echo "::set-output name=trigger_build::$trigger_build"
 
     - name: Update previous versions with current versions
       run: |
@@ -114,18 +123,10 @@ jobs:
         git commit -m "Update previous_versions.json with latest versions" || true
         git push origin main || true
 
-    - name: Trigger build if versions have changed or no previous versions
-      if: steps.compare_versions.outputs.trigger_build == 'true'
-      uses: peter-evans/repository-dispatch@v3
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
-        event-type: build-requested
-        client-payload: '{"message": "Version change detected or no previous versions, starting build."}'
-
   build:
     needs: check-versions
     runs-on: ubuntu-latest
-    if: github.event_name == 'repository_dispatch'
+    if: ${{ needs.check-versions.outputs.should_run_build == 'true' }}
 
     steps:
     - name: Checkout repository
@@ -133,9 +134,9 @@ jobs:
 
     - name: Set environment variables
       run: |
-        export NGINX_VERSION=${{ env.NGINX_VERSION }}
-        export OPENSSL_VERSION=${{ env.OPENSSL_VERSION }}
-        export JEMALLOC_VERSION=${{ env.JEMALLOC_VERSION }}
+        export NGINX_VERSION=${{ needs.check-versions.outputs.NGINX_VERSION }}
+        export OPENSSL_VERSION=${{ needs.check-versions.outputs.OPENSSL_VERSION }}
+        export JEMALLOC_VERSION=${{ needs.check-versions.outputs.JEMALLOC_VERSION }}
         echo "NGINX_VERSION=$NGINX_VERSION" >> $GITHUB_ENV
         echo "OPENSSL_VERSION=$OPENSSL_VERSION" >> $GITHUB_ENV
         echo "JEMALLOC_VERSION=$JEMALLOC_VERSION" >> $GITHUB_ENV
