@@ -1,0 +1,293 @@
+name: Build and Release Static Nginx
+
+on:
+  schedule:
+    - cron: '0 */2 * * *'  # 每隔2小时运行一次
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  check-versions:
+    runs-on: ubuntu-latest
+
+    outputs:
+      should_run_build: ${{ env.SHOULD_RUN_BUILD }}
+      NGINX_VERSION: ${{ env.NGINX_VERSION }}
+      OPENSSL_VERSION: ${{ env.OPENSSL_VERSION }}
+      JEMALLOC_VERSION: ${{ env.JEMALLOC_VERSION }}
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@main
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y jq wget
+
+    - name: Get current versions from API
+      id: get_current_versions
+      run: |
+        get_current_versions_all=$(curl -s https://raw.githubusercontent.com/hello-yunshu/Xray_bash_onekey_api/refs/heads/main/xray_shell_versions.json)
+        nginx_online_version=$(echo "$get_current_versions_all" | jq -r '.nginx_online_version')
+        openssl_online_version=$(echo "$get_current_versions_all" | jq -r '.openssl_online_version')
+        jemalloc_online_version=$(echo "$get_current_versions_all" | jq -r '.jemalloc_online_version')
+        echo "NGINX_VERSION=$nginx_online_version" >> $GITHUB_ENV
+        echo "OPENSSL_VERSION=$openssl_online_version" >> $GITHUB_ENV
+        echo "JEMALLOC_VERSION=$jemalloc_online_version" >> $GITHUB_ENV
+        echo "$get_current_versions_all" > .github/current_versions.json
+
+    - name: Read previous versions from file
+      id: read_previous_versions
+      run: |
+        if [ -f .github/previous_versions.json ]; then
+          previous_versions=$(cat .github/previous_versions.json)
+        else
+          echo "No previous versions found."
+          previous_versions='{}'
+        fi
+        previous_nginx_version=$(echo "$previous_versions" | jq -rc '.nginx_online_version // ""')
+        previous_openssl_version=$(echo "$previous_versions" | jq -rc '.openssl_online_version // ""')
+        previous_jemalloc_version=$(echo "$previous_versions" | jq -rc '.jemalloc_online_version // ""')
+        echo "PREVIOUS_NGINX_VERSION=$previous_nginx_version" >> $GITHUB_ENV
+        echo "PREVIOUS_OPENSSL_VERSION=$previous_openssl_version" >> $GITHUB_ENV
+        echo "PREVIOUS_JEMALLOC_VERSION=$previous_jemalloc_version" >> $GITHUB_ENV
+
+    - name: Compare versions
+      id: compare_versions
+      run: |
+        nginx_changed=false
+        openssl_changed=false
+        jemalloc_changed=false
+
+        current_nginx_version=${{ env.NGINX_VERSION }}
+        previous_nginx_version=${{ env.PREVIOUS_NGINX_VERSION }}
+
+        current_openssl_version=${{ env.OPENSSL_VERSION }}
+        previous_openssl_version=${{ env.PREVIOUS_OPENSSL_VERSION }}
+
+        current_jemalloc_version=${{ env.JEMALLOC_VERSION }}
+        previous_jemalloc_version=${{ env.PREVIOUS_JEMALLOC_VERSION }}
+
+        echo "Current Nginx Version: $current_nginx_version"
+        echo "Previous Nginx Version: $previous_nginx_version"
+        echo "Current OpenSSL Version: $current_openssl_version"
+        echo "Previous OpenSSL Version: $previous_openssl_version"
+        echo "Current Jemalloc Version: $current_jemalloc_version"
+        echo "Previous Jemalloc Version: $previous_jemalloc_version"
+
+        if [ "$current_nginx_version" != "$previous_nginx_version" ]; then
+          echo "Nginx version changed from $previous_nginx_version to $current_nginx_version"
+          nginx_changed=true
+        fi
+
+        if [ "$current_openssl_version" != "$previous_openssl_version" ]; then
+          echo "OpenSSL version changed from $previous_openssl_version to $current_openssl_version"
+          openssl_changed=true
+        fi
+
+        if [ "$current_jemalloc_version" != "$previous_jemalloc_version" ]; then
+          echo "Jemalloc version changed from $previous_jemalloc_version to $current_jemalloc_version"
+          jemalloc_changed=true
+        fi
+
+        trigger_build=false
+
+        if $nginx_changed || $openssl_changed || $jemalloc_changed; then
+          echo "Versions have changed, triggering build."
+          trigger_build=true
+        elif [ "$previous_versions" == '{}' ]; then
+          echo "No previous versions found, triggering build."
+          trigger_build=true
+        else
+          echo "No version changes detected."
+        fi
+
+        echo "SHOULD_RUN_BUILD=$trigger_build" >> $GITHUB_ENV
+
+    - name: Update previous versions with current versions
+      run: |
+        cp .github/current_versions.json .github/previous_versions.json
+
+    - name: Commit and push updated previous_versions.json
+      if: always()
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add .github/previous_versions.json
+        git commit -m "Update previous_versions.json with latest versions" || true
+        git push origin main || true
+
+  build:
+    needs: check-versions
+    runs-on: ubuntu-latest
+    if: ${{ needs.check-versions.outputs.should_run_build == 'true' || github.event_name == 'workflow_dispatch' }}
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@main
+
+    - name: Set environment variables
+      run: |
+        export NGINX_VERSION=${{ needs.check-versions.outputs.NGINX_VERSION }}
+        export OPENSSL_VERSION=${{ needs.check-versions.outputs.OPENSSL_VERSION }}
+        export JEMALLOC_VERSION=${{ needs.check-versions.outputs.JEMALLOC_VERSION }}
+        echo "NGINX_VERSION=$NGINX_VERSION" >> $GITHUB_ENV
+        echo "OPENSSL_VERSION=$OPENSSL_VERSION" >> $GITHUB_ENV
+        echo "JEMALLOC_VERSION=$JEMALLOC_VERSION" >> $GITHUB_ENV
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential libpcre3 libpcre3-dev zlib1g zlib1g-dev libssl-dev wget tar bzip2 unzip
+
+    - name: Cache OpenSSL
+      id: cache-openssl
+      uses: actions/cache@v4
+      with:
+        path: |
+          ./openssl-${{ env.OPENSSL_VERSION }}/
+        key: ${{ runner.os }}-openssl-downloaded-${{ env.OPENSSL_VERSION }}
+
+    - name: Download OpenSSL
+      if: steps.cache-openssl.outputs.cache-hit != 'true'
+      run: |
+        wget -nc --no-check-certificate https://www.openssl.org/source/openssl-${{ env.OPENSSL_VERSION }}.tar.gz
+        tar -zxvf openssl-${{ env.OPENSSL_VERSION }}.tar.gz
+
+    - name: Check OpenSSL download
+      if: steps.cache-openssl.outputs.cache-hit != 'true'
+      run: |
+        ls -la ./openssl-${{ env.OPENSSL_VERSION }}/
+        if [ ! -d "./openssl-${{ env.OPENSSL_VERSION }}/" ]; then
+          echo "OpenSSL download failed!"
+          exit 1
+        fi
+
+    - name: Cache Jemalloc
+      id: cache-jemalloc
+      uses: actions/cache@v4
+      with:
+        path: |
+          /opt/jemalloc/
+        key: ${{ runner.os }}-jemalloc-static-${{ env.JEMALLOC_VERSION }}
+
+    - name: Download and extract Jemalloc
+      if: steps.cache-jemalloc.outputs.cache-hit != 'true'
+      run: |
+        wget -nc --no-check-certificate https://github.com/jemalloc/jemalloc/releases/download/${{ env.JEMALLOC_VERSION }}/jemalloc-${{ env.JEMALLOC_VERSION }}.tar.bz2
+        tar -xvf jemalloc-${{ env.JEMALLOC_VERSION }}.tar.bz2
+        cd jemalloc-${{ env.JEMALLOC_VERSION }}
+        ./configure --enable-static --disable-shared --prefix=/opt/jemalloc
+        make -j$(($(nproc) + 1))
+        sudo make install
+        echo '/opt/jemalloc/lib' | sudo tee /etc/ld.so.conf.d/local.conf
+        sudo ldconfig
+
+    - name: Check Jemalloc installation
+      if: steps.cache-jemalloc.outputs.cache-hit != 'true'
+      run: |
+        ls -la /opt/jemalloc/
+        if [ ! -d "/opt/jemalloc/" ]; then
+          echo "Jemalloc installation failed!"
+          exit 1
+        fi
+
+    - name: Cache Nginx
+      id: cache-nginx
+      uses: actions/cache@v4
+      with:
+        path: |
+          ./nginx-${{ env.NGINX_VERSION }}/
+        key: ${{ runner.os }}-nginx-downloaded-${{ env.NGINX_VERSION }}
+
+    - name: Download Nginx
+      if: steps.cache-nginx.outputs.cache-hit != 'true'
+      run: |
+        wget -nc --no-check-certificate http://nginx.org/download/nginx-${{ env.NGINX_VERSION }}.tar.gz
+        tar -zxvf nginx-${{ env.NGINX_VERSION }}.tar.gz
+
+    - name: Check Nginx download
+      if: steps.cache-nginx.outputs.cache-hit != 'true'
+      run: |
+        ls -la ./nginx-${{ env.NGINX_VERSION }}/
+        if [ ! -d "./nginx-${{ env.NGINX_VERSION }}/" ]; then
+          echo "Nginx download failed!"
+          exit 1
+        fi
+
+    - name: Extract Nginx
+      run: |
+        cd nginx-${{ env.NGINX_VERSION }}
+        ./configure --prefix=/usr/local/nginx \
+          --user=nobody \
+          --group=nogroup \
+          --with-http_ssl_module \
+          --with-http_gzip_static_module \
+          --with-http_stub_status_module \
+          --with-http_flv_module \
+          --with-http_mp4_module \
+          --with-http_realip_module \
+          --with-http_secure_link_module \
+          --with-http_slice_module \
+          --with-stream \
+          --with-stream_ssl_module \
+          --with-stream_realip_module \
+          --with-stream_ssl_preread_module \
+          --with-http_sub_module \
+          --with-http_v2_module \
+          --with-cc-opt='-O3' \
+          --with-ld-opt="-L/opt/jemalloc/lib -Wl,-Bstatic -ljemalloc -Wl,-Bdynamic" \
+          --with-openssl=""$(pwd)/../openssl-${{ env.OPENSSL_VERSION }}"" \
+          --with-openssl-opt="no-shared"
+        make -j$(($(nproc) + 1))
+        sudo make install
+
+    - name: Check Nginx installation
+      if: steps.cache-nginx.outputs.cache-hit != 'true'
+      run: |
+        ls -la /usr/local/nginx/
+        if [ ! -d "/usr/local/nginx/" ]; then
+          echo "Nginx installation failed!"
+          exit 1
+        fi
+
+    - name: Verify Nginx installation
+      run: |
+        /usr/local/nginx/sbin/nginx -V
+        if [ $? -ne 0 ]; then
+          echo "Nginx verification failed!"
+          exit 1
+        fi
+
+    - name: Create package directory
+      run: |
+        mkdir -p package/nginx
+
+    - name: Copy Nginx installation to package directory
+      run: |
+        cp -r /usr/local/nginx/* package/nginx/
+
+    - name: Create tarball
+      run: |
+        cd package
+        tar -czvf ../xray-nginx-custom.tar.gz nginx/
+        cd ..
+
+    - name: Generate tag name
+      id: generate_tag
+      run: |
+        echo "TAG_NAME=v$(date '+%Y.%m.%d')" >> $GITHUB_ENV
+        echo "BUILD_TIME=$(date '+%Y-%m-%d %H:%M')" >> $GITHUB_ENV
+
+    - name: Upload release asset
+      uses: ncipollo/release-action@v1
+      with:
+        artifacts: "xray-nginx-custom.tar.gz"
+        tag: "${{ env.TAG_NAME }}"
+        body: "Nginx ${{env.NGINX_VERSION}} custom build with additional modules.\n\n\n\nOpenSSL Version: ${{env.OPENSSL_VERSION}}\nJemalloc Version: ${{env.JEMALLOC_VERSION}}\n\nBuild Date: ${{env.BUILD_TIME}}"
+        draft: false
+        prerelease: false
+        allowUpdates: true
