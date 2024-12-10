@@ -25,7 +25,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y jq
+        sudo apt-get install -y jq wget
 
     - name: Get current versions from API
       id: get_current_versions
@@ -167,6 +167,25 @@ jobs:
         make -j$(($(nproc) + 1))
         sudo make install
 
+    - name: Check OpenSSL installation
+      if: steps.cache-openssl.outputs.cache-hit != 'true'
+      run: |
+        ls -la /opt/openssl/
+        if [ ! -d "/opt/openssl/" ]; then
+          echo "OpenSSL installation failed!"
+          exit 1
+        fi
+
+    - name: Save OpenSSL to cache
+      if: steps.cache-openssl.outputs.cache-hit != 'true'
+      uses: actions/cache@v3
+      with:
+        path: |
+          /opt/openssl/include/openssl
+          /opt/openssl/lib/libssl.a
+          /opt/openssl/lib/libcrypto.a
+        key: ${{ runner.os }}-openssl-${{ env.OPENSSL_VERSION }}
+
     - name: Cache Jemalloc
       id: cache-jemalloc
       uses: actions/cache@v3
@@ -187,6 +206,24 @@ jobs:
         sudo make install
         echo '/opt/jemalloc/lib' | sudo tee /etc/ld.so.conf.d/local.conf
         sudo ldconfig
+
+    - name: Check Jemalloc installation
+      if: steps.cache-jemalloc.outputs.cache-hit != 'true'
+      run: |
+        ls -la /opt/jemalloc/
+        if [ ! -d "/opt/jemalloc/" ]; then
+          echo "Jemalloc installation failed!"
+          exit 1
+        fi
+
+    - name: Save Jemalloc to cache
+      if: steps.cache-jemalloc.outputs.cache-hit != 'true'
+      uses: actions/cache@v3
+      with:
+        path: |
+          /opt/jemalloc/include/jemalloc
+          /opt/jemalloc/lib/libjemalloc*
+        key: ${{ runner.os }}-jemalloc-${{ env.JEMALLOC_VERSION }}
 
     - name: Cache Nginx
       id: cache-nginx
@@ -225,11 +262,27 @@ jobs:
         make -j$(($(nproc) + 1))
         sudo make install
 
-    - name: Verify Nginx installation
+    - name: Check Nginx installation
+      if: steps.cache-nginx.outputs.cache-hit != 'true'
       run: |
         ls -la /usr/local/nginx/
         if [ ! -d "/usr/local/nginx/" ]; then
           echo "Nginx installation failed!"
+          exit 1
+        fi
+
+    - name: Save Nginx to cache
+      if: steps.cache-nginx.outputs.cache-hit != 'true'
+      uses: actions/cache@v3
+      with:
+        path: /usr/local/nginx
+        key: ${{ runner.os }}-nginx-${{ env.NGINX_VERSION }}
+
+    - name: Verify Nginx installation
+      run: |
+        /usr/local/nginx/sbin/nginx -V
+        if [ $? -ne 0 ]; then
+          echo "Nginx verification failed!"
           exit 1
         fi
 
