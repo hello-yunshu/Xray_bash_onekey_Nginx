@@ -126,7 +126,7 @@ jobs:
   build:
     needs: check-versions
     runs-on: ubuntu-latest
-    if: ${{ needs.check-versions.outputs.should_run_build == 'true' }}
+    if: ${{ needs.check-versions.outputs.should_run_build == 'true' || github.event_name == 'workflow_dispatch' }}
 
     steps:
     - name: Checkout repository
@@ -161,7 +161,7 @@ jobs:
         key: ${{ runner.os }}-openssl-${{ env.OPENSSL_VERSION }}
 
     - name: Download and extract OpenSSL
-      if: steps.cache-openssl.outputs.cache-hit == 'false'
+      if: steps.cache-openssl.outputs.cache-hit != 'true'
       run: |
         wget -nc --no-check-certificate https://www.openssl.org/source/openssl-${{ env.OPENSSL_VERSION }}.tar.gz
         tar -zxvf openssl-${{ env.OPENSSL_VERSION }}.tar.gz
@@ -180,7 +180,7 @@ jobs:
         key: ${{ runner.os }}-jemalloc-${{ env.JEMALLOC_VERSION }}
 
     - name: Download and extract Jemalloc
-      if: steps.cache-jemalloc.outputs.cache-hit == 'false'
+      if: steps.cache-jemalloc.outputs.cache-hit != 'true'
       run: |
         wget -nc --no-check-certificate https://github.com/jemalloc/jemalloc/releases/download/${{ env.JEMALLOC_VERSION }}/jemalloc-${{ env.JEMALLOC_VERSION }}.tar.bz2
         tar -xvf jemalloc-${{ env.JEMALLOC_VERSION }}.tar.bz2
@@ -199,7 +199,7 @@ jobs:
         key: ${{ runner.os }}-nginx-${{ env.NGINX_VERSION }}
 
     - name: Download and extract Nginx
-      if: steps.cache-nginx.outputs.cache-hit == 'false'
+      if: steps.cache-nginx.outputs.cache-hit != 'true'
       run: |
         wget -nc --no-check-certificate http://nginx.org/download/nginx-${{ env.NGINX_VERSION }}.tar.gz
         tar -zxvf nginx-${{ env.NGINX_VERSION }}.tar.gz
@@ -227,6 +227,14 @@ jobs:
           --with-openssl=$(pwd)/../openssl-${{ env.OPENSSL_VERSION }}
         make -j$(($(nproc) + 1))
         sudo make install
+
+    - name: Verify Nginx installation
+      run: |
+        ls -la /usr/local/nginx/
+        if [ ! -d "/usr/local/nginx/" ]; then
+          echo "Nginx installation failed!"
+          exit 1
+        fi
 
     - name: Create package directory
       run: |
