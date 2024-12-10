@@ -25,7 +25,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y jq build-essential libpcre3 libpcre3-dev zlib1g zlib1g-dev libssl-dev wget tar bzip2 unzip
+        sudo apt-get install -y jq
 
     - name: Get current versions from API
       id: get_current_versions
