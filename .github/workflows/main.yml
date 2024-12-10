@@ -13,10 +13,10 @@ jobs:
     runs-on: ubuntu-latest
 
     outputs:
-      should_run_build: ${{ steps.compare_versions.outputs.trigger_build }}
-      NGINX_VERSION: ${{ steps.get_current_versions.outputs.nginx_online_version }}
-      OPENSSL_VERSION: ${{ steps.get_current_versions.outputs.openssl_online_version }}
-      JEMALLOC_VERSION: ${{ steps.get_current_versions.outputs.jemalloc_online_version }}
+      should_run_build: ${{ env.SHOULD_RUN_BUILD }}
+      NGINX_VERSION: ${{ env.NGINX_VERSION }}
+      OPENSSL_VERSION: ${{ env.OPENSSL_VERSION }}
+      JEMALLOC_VERSION: ${{ env.JEMALLOC_VERSION }}
 
     steps:
     - name: Checkout repository
@@ -25,7 +25,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y jq
+        sudo apt-get install -y jq build-essential libpcre3 libpcre3-dev zlib1g zlib1g-dev libssl-dev wget tar bzip2 unzip
 
     - name: Get current versions from API
       id: get_current_versions
@@ -37,9 +37,6 @@ jobs:
         echo "NGINX_VERSION=$nginx_online_version" >> $GITHUB_ENV
         echo "OPENSSL_VERSION=$openssl_online_version" >> $GITHUB_ENV
         echo "JEMALLOC_VERSION=$jemalloc_online_version" >> $GITHUB_ENV
-        echo "::set-output name=nginx_online_version::$nginx_online_version"
-        echo "::set-output name=openssl_online_version::$openssl_online_version"
-        echo "::set-output name=jemalloc_online_version::$jemalloc_online_version"
         echo "$get_current_versions_all" > .github/current_versions.json
 
     - name: Read previous versions from file
@@ -108,7 +105,7 @@ jobs:
           echo "No version changes detected."
         fi
 
-        echo "::set-output name=trigger_build::$trigger_build"
+        echo "SHOULD_RUN_BUILD=$trigger_build" >> $GITHUB_ENV
 
     - name: Update previous versions with current versions
       run: |
@@ -144,7 +141,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential libpcre3 libpcre3-dev zlib1g zlib1g-dev libssl-dev wget tar bzip2 unzip jq
+        sudo apt-get install -y build-essential libpcre3 libpcre3-dev zlib1g zlib1g-dev libssl-dev wget tar bzip2 unzip
 
     - name: Create non-root user for Nginx
       run: |
@@ -223,7 +220,7 @@ jobs:
           --with-http_sub_module \
           --with-http_v2_module \
           --with-cc-opt='-O3' \
-          --with-ld-opt="-ljemalloc" \
+          --with-ld-opt="-L/opt/jemalloc/lib -ljemalloc" \
           --with-openssl=$(pwd)/../openssl-${{ env.OPENSSL_VERSION }}
         make -j$(($(nproc) + 1))
         sudo make install
@@ -258,3 +255,6 @@ jobs:
         body: "Nginx ${env.NGINX_VERSION} custom build with additional modules.\n\nBuild Date: $(date '+%Y-%m-%d %H:%M')"
         draft: false
         prerelease: false
+
+
+
