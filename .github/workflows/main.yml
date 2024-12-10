@@ -1,4 +1,4 @@
-name: Build and Release Nginx
+name: Build and Release Static Nginx
 
 on:
   schedule:
@@ -155,7 +155,7 @@ jobs:
           /opt/openssl/include/openssl
           /opt/openssl/lib/libssl.a
           /opt/openssl/lib/libcrypto.a
-        key: ${{ runner.os }}-openssl-${{ env.OPENSSL_VERSION }}
+        key: ${{ runner.os }}-openssl-static-${{ env.OPENSSL_VERSION }}
 
     - name: Download and extract OpenSSL
       if: steps.cache-openssl.outputs.cache-hit != 'true'
@@ -163,9 +163,9 @@ jobs:
         wget -nc --no-check-certificate https://www.openssl.org/source/openssl-${{ env.OPENSSL_VERSION }}.tar.gz
         tar -zxvf openssl-${{ env.OPENSSL_VERSION }}.tar.gz
         cd openssl-${{ env.OPENSSL_VERSION }}
-        ./config --prefix=/opt/openssl shared zlib
+        ./config no-shared no-dso --prefix=/opt/openssl
         make -j$(($(nproc) + 1))
-        sudo make install
+        sudo make install_sw
 
     - name: Check OpenSSL installation
       if: steps.cache-openssl.outputs.cache-hit != 'true'
@@ -184,7 +184,7 @@ jobs:
           /opt/openssl/include/openssl
           /opt/openssl/lib/libssl.a
           /opt/openssl/lib/libcrypto.a
-        key: ${{ runner.os }}-openssl-${{ env.OPENSSL_VERSION }}
+        key: ${{ runner.os }}-openssl-static-${{ env.OPENSSL_VERSION }}
 
     - name: Cache Jemalloc
       id: cache-jemalloc
@@ -193,7 +193,7 @@ jobs:
         path: |
           /opt/jemalloc/include/jemalloc
           /opt/jemalloc/lib/libjemalloc*
-        key: ${{ runner.os }}-jemalloc-${{ env.JEMALLOC_VERSION }}
+        key: ${{ runner.os }}-jemalloc-static-${{ env.JEMALLOC_VERSION }}
 
     - name: Download and extract Jemalloc
       if: steps.cache-jemalloc.outputs.cache-hit != 'true'
@@ -201,11 +201,9 @@ jobs:
         wget -nc --no-check-certificate https://github.com/jemalloc/jemalloc/releases/download/${{ env.JEMALLOC_VERSION }}/jemalloc-${{ env.JEMALLOC_VERSION }}.tar.bz2
         tar -xvf jemalloc-${{ env.JEMALLOC_VERSION }}.tar.bz2
         cd jemalloc-${{ env.JEMALLOC_VERSION }}
-        ./configure --prefix=/opt/jemalloc
+        ./configure --enable-static --disable-shared --prefix=/opt/jemalloc
         make -j$(($(nproc) + 1))
-        sudo make install
-        echo '/opt/jemalloc/lib' | sudo tee /etc/ld.so.conf.d/local.conf
-        sudo ldconfig
+        sudo make install_lib_shared=no install_include=yes install_lib_static=yes
 
     - name: Check Jemalloc installation
       if: steps.cache-jemalloc.outputs.cache-hit != 'true'
@@ -223,14 +221,14 @@ jobs:
         path: |
           /opt/jemalloc/include/jemalloc
           /opt/jemalloc/lib/libjemalloc*
-        key: ${{ runner.os }}-jemalloc-${{ env.JEMALLOC_VERSION }}
+        key: ${{ runner.os }}-jemalloc-static-${{ env.JEMALLOC_VERSION }}
 
     - name: Cache Nginx
       id: cache-nginx
       uses: actions/cache@v3
       with:
         path: /usr/local/nginx
-        key: ${{ runner.os }}-nginx-${{ env.NGINX_VERSION }}
+        key: ${{ runner.os }}-nginx-static-${{ env.NGINX_VERSION }}-${{ env.OPENSSL_VERSION }}-${{ env.JEMALLOC_VERSION }}
 
     - name: Download and extract Nginx
       if: steps.cache-nginx.outputs.cache-hit != 'true'
@@ -257,7 +255,7 @@ jobs:
           --with-http_sub_module \
           --with-http_v2_module \
           --with-cc-opt='-O3' \
-          --with-ld-opt="-L/opt/jemalloc/lib -ljemalloc" \
+          --with-ld-opt="-L/opt/jemalloc/lib -Wl,-Bstatic -ljemalloc -Wl,-Bdynamic" \
           --with-openssl=$(pwd)/../openssl-${{ env.OPENSSL_VERSION }}
         make -j$(($(nproc) + 1))
         sudo make install
@@ -276,7 +274,7 @@ jobs:
       uses: actions/cache@v3
       with:
         path: /usr/local/nginx
-        key: ${{ runner.os }}-nginx-${{ env.NGINX_VERSION }}
+        key: ${{ runner.os }}-nginx-static-${{ env.NGINX_VERSION }}-${{ env.OPENSSL_VERSION }}-${{ env.JEMALLOC_VERSION }}
 
     - name: Verify Nginx installation
       run: |
@@ -300,11 +298,16 @@ jobs:
         tar -czvf ../xray-nginx-custom.tar.gz usr/local/nginx/
         cd ..
 
+    - name: Generate tag name
+      id: generate_tag
+      run: |
+        echo "TAG_NAME=v$(date '+%Y.%m.%d')" >> $GITHUB_ENV
+
     - name: Upload release asset
       uses: ncipollo/release-action@v1
       with:
         artifacts: "xray-nginx-custom.tar.gz"
-        tag: "v$(date '+%Y.%m.%d')"
+        tag: "${{ env.TAG_NAME }}"
         body: "Nginx ${env.NGINX_VERSION} custom build with additional modules.\n\nBuild Date: $(date '+%Y-%m-%d %H:%M')"
         draft: false
         prerelease: false
