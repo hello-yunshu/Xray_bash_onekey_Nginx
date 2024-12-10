@@ -142,11 +142,7 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y build-essential libpcre3 libpcre3-dev zlib1g zlib1g-dev libssl-dev wget tar bzip2 unzip
-
-    - name: Create non-root user for Nginx
-      run: |
-        sudo useradd -r -s /bin/false -U nginx
-
+        
     - name: Cache OpenSSL
       id: cache-openssl
       uses: actions/cache@v3
@@ -242,7 +238,6 @@ jobs:
           --with-http_ssl_module \
           --with-http_gzip_static_module \
           --with-http_stub_status_module \
-          --with-pcre \
           --with-http_flv_module \
           --with-http_mp4_module \
           --with-http_realip_module \
@@ -311,6 +306,3 @@ jobs:
         body: "Nginx ${env.NGINX_VERSION} custom build with additional modules.\n\nBuild Date: $(date '+%Y-%m-%d %H:%M')"
         draft: false
         prerelease: false
-
-
-
