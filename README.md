@@ -22,14 +22,17 @@
     git clone https://github.com/hello-yunshu/Xray_bash_onekey_Nginx.git
     cd Xray_bash_onekey_Nginx
     ```
-2. 赋予执行权限并运行一键安装脚本：
+
+2. 安装必须的库文件：
+   pcre、zlib
+
+3. 赋予执行权限并运行：
     ```bash
     chmod +x nginx
     ./nginx
     ```
-   该脚本将会自动下载所需的源代码，并按照指定配置进行编译和安装。
 
-3. 配置 Nginx：
+4. 配置 Nginx：
    根据您的需求修改 Nginx 配置文件（位于 `/usr/local/nginx/nginx.conf`）, 
    默认以 `nobody:nogroup` 用户运行
 
@@ -41,7 +44,7 @@
     ```
 
 ## 注意事项
-- 编译过程可能需要一定时间，具体取决于您的服务器性能。
+- 下载过程可能需要一定时间，具体取决于您的服务器的网络性能。
 - 如果遇到任何问题或者有改进建议，请随时提交 [Issue](https://github.com/hello-yunshu/Xray_bash_onekey_Nginx/issues) 或者 Pull Request。
 
 ## 联系方式
