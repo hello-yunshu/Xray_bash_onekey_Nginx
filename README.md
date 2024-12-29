@@ -17,11 +17,7 @@
 - 已安装基础构建工具和依赖项
 
 ### 安装步骤
-1. 克隆此仓库至本地：
-    ```bash
-    git clone https://github.com/hello-yunshu/Xray_bash_onekey_Nginx.git
-    cd Xray_bash_onekey_Nginx
-    ```
+1. 下载此仓库最新 Release
 
 2. 安装必须的库文件：
    pcre、zlib
