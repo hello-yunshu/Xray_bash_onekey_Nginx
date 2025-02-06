@@ -122,7 +122,7 @@ jobs:
 
   build:
     needs: check-versions
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     if: ${{ needs.check-versions.outputs.should_run_build == 'true' || github.event_name == 'workflow_dispatch' }}
 
     steps:
@@ -238,7 +238,7 @@ jobs:
           --with-http_sub_module \
           --with-http_v2_module \
           --with-http_v3_module \
-          --with-cc-opt='-O3' \
+          --with-cc-opt='-O3 -static-libgcc -fPIC' \
           --with-ld-opt="-L/opt/jemalloc/lib -Wl,-Bstatic -ljemalloc -Wl,-Bdynamic" \
           --with-openssl=""$(pwd)/../openssl-${{ env.OPENSSL_VERSION }}"" \
           --with-openssl-opt="no-shared"
@@ -257,6 +257,8 @@ jobs:
     - name: Verify Nginx installation
       run: |
         /usr/local/nginx/sbin/nginx -V
+        ldd /usr/local/nginx/sbin/nginx  # 应显示 "not a dynamic executable"
+        objdump -p /usr/local/nginx/sbin/nginx | grep GLIBC  # 检查 GLIBC 版本
         if [ $? -ne 0 ]; then
           echo "Nginx verification failed!"
           exit 1
