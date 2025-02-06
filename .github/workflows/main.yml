@@ -238,7 +238,7 @@ jobs:
           --with-http_sub_module \
           --with-http_v2_module \
           --with-http_v3_module \
-          --with-cc-opt='-O3' \
+          --with-cc-opt='-O3 -static-libgcc -static-libstdc++ -fPIC' \
           --with-ld-opt="-L/opt/jemalloc/lib -Wl,-Bstatic -ljemalloc -Wl,-Bdynamic" \
           --with-openssl=""$(pwd)/../openssl-${{ env.OPENSSL_VERSION }}"" \
           --with-openssl-opt="no-shared"
