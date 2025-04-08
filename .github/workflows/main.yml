@@ -122,7 +122,7 @@ jobs:
 
   build:
     needs: check-versions
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     if: ${{ needs.check-versions.outputs.should_run_build == 'true' || github.event_name == 'workflow_dispatch' }}
 
     steps:
