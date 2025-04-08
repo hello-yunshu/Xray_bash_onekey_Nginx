@@ -283,13 +283,14 @@ jobs:
       run: |
         echo "TAG_NAME=v$(date '+%Y.%m.%d')" >> $GITHUB_ENV
         echo "BUILD_TIME=$(date '+%Y-%m-%d %H:%M')" >> $GITHUB_ENV
+        echo "BUILD_IMAGE=$(lsb_release -d | cut -f2-)" >> $GITHUB_ENV
 
     - name: Upload release asset
       uses: ncipollo/release-action@v1
       with:
         artifacts: "xray-nginx-custom.tar.gz"
         tag: "${{ env.TAG_NAME }}"
-        body: "Nginx ${{env.NGINX_VERSION}} custom build with additional modules.\n\n\n\nOpenSSL Version: ${{env.OPENSSL_VERSION}}\nJemalloc Version: ${{env.JEMALLOC_VERSION}}\n\nBuild Date: ${{env.BUILD_TIME}}"
+        body: "Nginx ${{env.NGINX_VERSION}} custom build with additional modules.\n\n\n\nOpenSSL Version: ${{env.OPENSSL_VERSION}}\nJemalloc Version: ${{env.JEMALLOC_VERSION}}\n\nBuild Date: ${{env.BUILD_TIME}}\nBuild Image: ${{env.BUILD_IMAGE}}"
         draft: false
         prerelease: false
         allowUpdates: true
