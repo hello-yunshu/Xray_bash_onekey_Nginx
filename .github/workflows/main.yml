@@ -122,21 +122,34 @@ jobs:
 
   build:
     needs: check-versions
-    runs-on: ubuntu-22.04
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            arch: x86
+          - os: ubuntu-22.04-arm
+            arch: arm
     if: ${{ needs.check-versions.outputs.should_run_build == 'true' || github.event_name == 'workflow_dispatch' }}
-
+    
+    outputs:
+      BUILD_TIME: ${{ env.BUILD_TIME }}
+      BUILD_IMAGE: ${{ env.BUILD_IMAGE }}
+      
     steps:
     - name: Checkout repository
       uses: actions/checkout@main
 
     - name: Set environment variables
       run: |
-        export NGINX_VERSION=${{ needs.check-versions.outputs.NGINX_VERSION }}
-        export OPENSSL_VERSION=${{ needs.check-versions.outputs.OPENSSL_VERSION }}
-        export JEMALLOC_VERSION=${{ needs.check-versions.outputs.JEMALLOC_VERSION }}
+        export NGINX_VERSION="${{ needs.check-versions.outputs.NGINX_VERSION }}"
+        export OPENSSL_VERSION="${{ needs.check-versions.outputs.OPENSSL_VERSION }}"
+        export JEMALLOC_VERSION="${{ needs.check-versions.outputs.JEMALLOC_VERSION }}"
         echo "NGINX_VERSION=$NGINX_VERSION" >> $GITHUB_ENV
         echo "OPENSSL_VERSION=$OPENSSL_VERSION" >> $GITHUB_ENV
         echo "JEMALLOC_VERSION=$JEMALLOC_VERSION" >> $GITHUB_ENV
+        echo "BUILD_TIME=$(date '+%Y-%m-%d %H:%M')" >> $GITHUB_ENV
+        echo "BUILD_IMAGE=$(lsb_release -d | cut -f2-)" >> $GITHUB_ENV
 
     - name: Install dependencies
       run: |
@@ -150,7 +163,7 @@ jobs:
       with:
         path: |
           ./openssl-${{ env.OPENSSL_VERSION }}/
-        key: ${{ runner.os }}-openssl-downloaded-${{ env.OPENSSL_VERSION }}
+        key: ${{ runner.os }}-openssl-downloaded-${{ matrix.arch }}-${{ env.OPENSSL_VERSION }}
 
     - name: Download OpenSSL
       if: steps.cache-openssl.outputs.cache-hit != 'true'
@@ -173,7 +186,7 @@ jobs:
       with:
         path: |
           /opt/jemalloc/
-        key: ${{ runner.os }}-jemalloc-static-${{ env.JEMALLOC_VERSION }}
+        key: ${{ runner.os }}-jemalloc-static-${{ matrix.arch }}-${{ env.JEMALLOC_VERSION }}
 
     - name: Download and extract Jemalloc
       if: steps.cache-jemalloc.outputs.cache-hit != 'true'
@@ -202,7 +215,7 @@ jobs:
       with:
         path: |
           ./nginx-${{ env.NGINX_VERSION }}/
-        key: ${{ runner.os }}-nginx-downloaded-${{ env.NGINX_VERSION }}
+        key: ${{ runner.os }}-nginx-downloaded-${{ matrix.arch }}-${{ env.NGINX_VERSION }}
 
     - name: Download Nginx
       if: steps.cache-nginx.outputs.cache-hit != 'true'
@@ -275,20 +288,48 @@ jobs:
     - name: Create tarball
       run: |
         cd package
-        tar -czvf ../xray-nginx-custom.tar.gz nginx/
+        tar -czvf ../xray-nginx-custom-${{ matrix.arch }}.tar.gz nginx/
         cd ..
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: xray-nginx-custom-${{ matrix.arch }}.tar.gz
+        path: xray-nginx-custom-${{ matrix.arch }}.tar.gz
+
+  upload-release-assets:
+    needs: [check-versions, build]
+    runs-on: ubuntu-latest
+    steps:
+    - name: Set environment variables
+      run: |
+        export NGINX_VERSION="${{ needs.check-versions.outputs.NGINX_VERSION }}"
+        export OPENSSL_VERSION="${{ needs.check-versions.outputs.OPENSSL_VERSION }}"
+        export JEMALLOC_VERSION="${{ needs.check-versions.outputs.JEMALLOC_VERSION }}"
+        export BUILD_TIME="${{ needs.build.outputs.BUILD_TIME }}"
+        export BUILD_IMAGE="${{ needs.build.outputs.BUILD_IMAGE }}"
+        echo "BUILD_TIME=$BUILD_TIME" >> $GITHUB_ENV
+        echo "BUILD_IMAGE=$BUILD_IMAGE" >> $GITHUB_ENV
+        echo "NGINX_VERSION=$NGINX_VERSION" >> $GITHUB_ENV
+        echo "OPENSSL_VERSION=$OPENSSL_VERSION" >> $GITHUB_ENV
+        echo "JEMALLOC_VERSION=$JEMALLOC_VERSION" >> $GITHUB_ENV
+
+    - name: Download build artifacts
+      uses: actions/download-artifact@v4
+      with: 
+        path: artifacts
+        pattern: "*.tar.gz"
+        merge-multiple: true
 
     - name: Generate tag name
       id: generate_tag
       run: |
         echo "TAG_NAME=v$(date '+%Y.%m.%d')" >> $GITHUB_ENV
-        echo "BUILD_TIME=$(date '+%Y-%m-%d %H:%M')" >> $GITHUB_ENV
-        echo "BUILD_IMAGE=$(lsb_release -d | cut -f2-)" >> $GITHUB_ENV
 
-    - name: Upload release asset
+    - name: Upload release assets
       uses: ncipollo/release-action@v1
       with:
-        artifacts: "xray-nginx-custom.tar.gz"
+        artifacts: "artifacts/xray-nginx-custom-*.tar.gz"
         tag: "${{ env.TAG_NAME }}"
         body: "Nginx ${{env.NGINX_VERSION}} custom build with additional modules.\n\n\n\nOpenSSL Version: ${{env.OPENSSL_VERSION}}\nJemalloc Version: ${{env.JEMALLOC_VERSION}}\n\nBuild Date: ${{env.BUILD_TIME}}\nBuild Image: ${{env.BUILD_IMAGE}}"
         draft: false
