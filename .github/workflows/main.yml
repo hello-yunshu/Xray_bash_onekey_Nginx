@@ -17,6 +17,8 @@ jobs:
       NGINX_VERSION: ${{ env.NGINX_VERSION }}
       OPENSSL_VERSION: ${{ env.OPENSSL_VERSION }}
       JEMALLOC_VERSION: ${{ env.JEMALLOC_VERSION }}
+      PCRE_VERSION: ${{ env.PCRE_VERSION }}
+      ZLIB_VERSION: ${{ env.ZLIB_VERSION }}
 
     steps:
     - name: Checkout repository
@@ -27,16 +29,25 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y jq wget
 
-    - name: Get current versions from API
+    - name: Get current versions
       id: get_current_versions
       run: |
         get_current_versions_all=$(curl -s https://raw.githubusercontent.com/hello-yunshu/Xray_bash_onekey_api/refs/heads/main/xray_shell_versions.json)
         nginx_online_version=$(echo "$get_current_versions_all" | jq -r '.nginx_online_version')
         openssl_online_version=$(echo "$get_current_versions_all" | jq -r '.openssl_online_version')
         jemalloc_online_version=$(echo "$get_current_versions_all" | jq -r '.jemalloc_online_version')
+        latest_pcre2=$(curl -s https://api.github.com/repos/PCRE2Project/pcre2/releases/latest | jq -r '.tag_name' | sed 's/^pcre2-//')
+        latest_zlib=$(curl -s https://zlib.net/ | grep -oP 'zlib-\K[\d\.]+(?=\.tar\.gz)' | sort -V | tail -1)
+        # Check if any of the versions are empty
+        if [ -z "$nginx_online_version" ] || [ -z "$openssl_online_version" ] || [ -z "$jemalloc_online_version" ] || [ -z "$latest_pcre2" ] || [ -z "$latest_zlib" ]; then
+          echo "Error: One or more current versions are empty."
+          exit 1
+        fi
         echo "NGINX_VERSION=$nginx_online_version" >> $GITHUB_ENV
         echo "OPENSSL_VERSION=$openssl_online_version" >> $GITHUB_ENV
         echo "JEMALLOC_VERSION=$jemalloc_online_version" >> $GITHUB_ENV
+        echo "PCRE_VERSION=$latest_pcre2" >> $GITHUB_ENV
+        echo "ZLIB_VERSION=$latest_zlib" >> $GITHUB_ENV
         echo "$get_current_versions_all" > .github/current_versions.json
 
     - name: Read previous versions from file
@@ -51,6 +62,13 @@ jobs:
         previous_nginx_version=$(echo "$previous_versions" | jq -rc '.nginx_online_version // ""')
         previous_openssl_version=$(echo "$previous_versions" | jq -rc '.openssl_online_version // ""')
         previous_jemalloc_version=$(echo "$previous_versions" | jq -rc '.jemalloc_online_version // ""')
+        # Check if any of the previous versions are empty
+        if [ -z "$previous_nginx_version" ] && [ -n "$previous_versions" ] || \
+           [ -z "$previous_openssl_version" ] && [ -n "$previous_versions" ] || \
+           [ -z "$previous_jemalloc_version" ] && [ -n "$previous_versions" ]; then
+          echo "Error: One or more previous versions are empty."
+          exit 1
+        fi
         echo "PREVIOUS_NGINX_VERSION=$previous_nginx_version" >> $GITHUB_ENV
         echo "PREVIOUS_OPENSSL_VERSION=$previous_openssl_version" >> $GITHUB_ENV
         echo "PREVIOUS_JEMALLOC_VERSION=$previous_jemalloc_version" >> $GITHUB_ENV
@@ -71,12 +89,17 @@ jobs:
         current_jemalloc_version=${{ env.JEMALLOC_VERSION }}
         previous_jemalloc_version=${{ env.PREVIOUS_JEMALLOC_VERSION }}
 
+        current_pcre_version=${{ env.PCRE_VERSION }}
+        current_zlib_version=${{ env.ZLIB_VERSION }}
+
         echo "Current Nginx Version: $current_nginx_version"
         echo "Previous Nginx Version: $previous_nginx_version"
         echo "Current OpenSSL Version: $current_openssl_version"
         echo "Previous OpenSSL Version: $previous_openssl_version"
         echo "Current Jemalloc Version: $current_jemalloc_version"
         echo "Previous Jemalloc Version: $previous_jemalloc_version"
+        echo "Current PCRE Version: $current_pcre_version"
+        echo "Current Zlib Version: $current_zlib_version"
 
         if [ "$current_nginx_version" != "$previous_nginx_version" ]; then
           echo "Nginx version changed from $previous_nginx_version to $current_nginx_version"
@@ -145,9 +168,13 @@ jobs:
         export NGINX_VERSION="${{ needs.check-versions.outputs.NGINX_VERSION }}"
         export OPENSSL_VERSION="${{ needs.check-versions.outputs.OPENSSL_VERSION }}"
         export JEMALLOC_VERSION="${{ needs.check-versions.outputs.JEMALLOC_VERSION }}"
+        export PCRE_VERSION="${{ needs.check-versions.outputs.PCRE_VERSION }}"
+        export ZLIB_VERSION="${{ needs.check-versions.outputs.ZLIB_VERSION }}"
         echo "NGINX_VERSION=$NGINX_VERSION" >> $GITHUB_ENV
         echo "OPENSSL_VERSION=$OPENSSL_VERSION" >> $GITHUB_ENV
         echo "JEMALLOC_VERSION=$JEMALLOC_VERSION" >> $GITHUB_ENV
+        echo "PCRE_VERSION=$PCRE_VERSION" >> $GITHUB_ENV
+        echo "ZLIB_VERSION=$ZLIB_VERSION" >> $GITHUB_ENV
         echo "BUILD_TIME=$(date '+%Y-%m-%d %H:%M')" >> $GITHUB_ENV
         echo "BUILD_IMAGE=$(lsb_release -d | cut -f2-)" >> $GITHUB_ENV
 
@@ -156,6 +183,7 @@ jobs:
         sudo apt-get update
         sudo apt-get upgrade -y
         sudo apt-get install -y build-essential libpcre3 libpcre3-dev zlib1g zlib1g-dev libssl-dev wget tar bzip2 unzip
+        sudo apt-get install -y musl-tools
 
     - name: Cache OpenSSL
       id: cache-openssl
@@ -194,11 +222,10 @@ jobs:
         wget -nc --no-check-certificate https://github.com/jemalloc/jemalloc/releases/download/${{ env.JEMALLOC_VERSION }}/jemalloc-${{ env.JEMALLOC_VERSION }}.tar.bz2
         tar -xvf jemalloc-${{ env.JEMALLOC_VERSION }}.tar.bz2
         cd jemalloc-${{ env.JEMALLOC_VERSION }}
+        #export CC=musl-gcc
         ./configure --enable-static --disable-shared --prefix=/opt/jemalloc
         make -j$(($(nproc) + 1))
         sudo make install
-        echo '/opt/jemalloc/lib' | sudo tee /etc/ld.so.conf.d/local.conf
-        sudo ldconfig
 
     - name: Check Jemalloc installation
       if: steps.cache-jemalloc.outputs.cache-hit != 'true'
@@ -206,6 +233,62 @@ jobs:
         ls -la /opt/jemalloc/
         if [ ! -d "/opt/jemalloc/" ]; then
           echo "Jemalloc installation failed!"
+          exit 1
+        fi
+
+    - name: Cache PCRE2
+      id: cache-pcre2
+      uses: actions/cache@v4
+      with:
+        path: |
+          /opt/static-libs-pcre2
+        key: ${{ runner.os }}-pcre2-static-${{ matrix.arch }}-${{ env.PCRE_VERSION }}
+
+    - name: Download and build PCRE2
+      if: steps.cache-pcre2.outputs.cache-hit != 'true'
+      run: |
+        wget -nc https://github.com/PCRE2Project/pcre2/releases/download/pcre2-${{ env.PCRE_VERSION }}/pcre2-${{ env.PCRE_VERSION }}.tar.gz
+        tar -xf pcre2-${{ env.PCRE_VERSION }}.tar.gz
+        cd pcre2-${{ env.PCRE_VERSION }}
+        export CC=musl-gcc
+        ./configure --prefix=/opt/static-libs-pcre2 --disable-shared --enable-static
+        make -j$(nproc)
+        sudo make install
+
+    - name: Check PCRE2 installation
+      if: steps.cache-pcre2.outputs.cache-hit != 'true'
+      run: |
+        ls -la /opt/static-libs-pcre2/lib/libpcre2-*.a
+        if [ ! -f "/opt/static-libs-pcre2/lib/libpcre2-8.a" ]; then
+          echo "PCRE2 static build failed!"
+          exit 1
+        fi
+
+    - name: Cache zlib
+      id: cache-zlib
+      uses: actions/cache@v4
+      with:
+        path: |
+          /opt/static-libs-zlib
+        key: ${{ runner.os }}-zlib-static-${{ matrix.arch }}-${{ env.ZLIB_VERSION }}
+
+    - name: Download and build zlib
+      if: steps.cache-zlib.outputs.cache-hit != 'true'
+      run: |
+        wget -nc https://zlib.net/zlib-${{ env.ZLIB_VERSION }}.tar.gz
+        tar -xf zlib-${{ env.ZLIB_VERSION }}.tar.gz
+        cd zlib-${{ env.ZLIB_VERSION }}
+        export CC=musl-gcc
+        ./configure --prefix=/opt/static-libs-zlib --static
+        make -j$(nproc)
+        sudo make install
+
+    - name: Check zlib installation
+      if: steps.cache-zlib.outputs.cache-hit != 'true'
+      run: |
+        ls -la /opt/static-libs-zlib/lib/libz.a
+        if [ ! -f "/opt/static-libs-zlib/lib/libz.a" ]; then
+          echo "zlib static build failed!"
           exit 1
         fi
 
@@ -235,6 +318,7 @@ jobs:
     - name: Extract Nginx
       run: |
         cd nginx-${{ env.NGINX_VERSION }}
+        export CC=musl-gcc
         ./configure --prefix=/usr/local/nginx \
           --user=nobody \
           --group=nogroup \
@@ -251,10 +335,13 @@ jobs:
           --with-http_sub_module \
           --with-http_v2_module \
           --with-http_v3_module \
-          --with-cc-opt='-O3 -static-libgcc -fPIC' \
-          --with-ld-opt="-L/opt/jemalloc/lib -Wl,-Bstatic -ljemalloc -Wl,-Bdynamic" \
-          --with-openssl=""$(pwd)/../openssl-${{ env.OPENSSL_VERSION }}"" \
-          --with-openssl-opt="no-shared"
+          --with-cc-opt='-static -static-libgcc -Os -fPIC -I/opt/static-libs/include' \
+          --with-ld-opt='-static -L/opt/jemalloc/lib -ljemalloc -L/opt/static-libs/lib' \
+          --with-openssl="$(pwd)/../openssl-${{ env.OPENSSL_VERSION }}" \
+          --with-openssl-opt='no-shared no-dso no-hw no-engine' \
+          --with-zlib="$(pwd)/../zlib-${{ env.ZLIB_VERSION }}" \
+          --with-pcre="$(pwd)/../pcre2-${{ env.PCRE_VERSION }}"
+
         make -j$(($(nproc) + 1))
         sudo make install
 
