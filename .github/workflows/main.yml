@@ -356,6 +356,7 @@ jobs:
 
     - name: Verify Nginx installation
       run: |
+        set -x
         nginx_binary="/usr/local/nginx/sbin/nginx"
         nginx_v_output=$($nginx_binary -V 2>&1)
         echo "$nginx_v_output"
