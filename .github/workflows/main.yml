@@ -250,7 +250,7 @@ jobs:
         wget -nc https://github.com/PCRE2Project/pcre2/releases/download/pcre2-${{ env.PCRE_VERSION }}/pcre2-${{ env.PCRE_VERSION }}.tar.gz
         tar -xf pcre2-${{ env.PCRE_VERSION }}.tar.gz
         cd pcre2-${{ env.PCRE_VERSION }}
-        export CC=musl-gcc
+        #export CC=musl-gcc
         ./configure --prefix=/opt/static-libs-pcre2 --disable-shared --enable-static
         make -j$(nproc)
         sudo make install
@@ -278,7 +278,7 @@ jobs:
         wget -nc https://zlib.net/zlib-${{ env.ZLIB_VERSION }}.tar.gz
         tar -xf zlib-${{ env.ZLIB_VERSION }}.tar.gz
         cd zlib-${{ env.ZLIB_VERSION }}
-        export CC=musl-gcc
+        #export CC=musl-gcc
         ./configure --prefix=/opt/static-libs-zlib --static
         make -j$(nproc)
         sudo make install
@@ -318,7 +318,7 @@ jobs:
     - name: Extract Nginx
       run: |
         cd nginx-${{ env.NGINX_VERSION }}
-        export CC=musl-gcc
+        #export CC=musl-gcc
         ./configure --prefix=/usr/local/nginx \
           --user=nobody \
           --group=nogroup \
