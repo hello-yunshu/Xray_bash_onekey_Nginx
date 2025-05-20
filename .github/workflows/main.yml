@@ -361,24 +361,29 @@ jobs:
         nginx_v_output=$($nginx_binary -V 2>&1)
         echo "$nginx_v_output"
 
-        ldd_output=$(ldd "$nginx_binary" 2>/dev/null)
-        echo "$ldd_output"
+        # 使用 file 判断是否是静态编译
+        file_output=$(file "$nginx_binary")
+        echo "$file_output"
 
-        # 如果是静态编译，直接视为成功
-        if echo "$ldd_output" | grep -q "not a dynamic executable"; then
+        if echo "$file_output" | grep -qi "statically linked"; then
             echo "✅ Nginx is statically compiled. Verification succeeded."
-        elif echo "$ldd_output" | grep -q "lib"; then
-            # 动态链接，检查 GLIBC 依赖是否存在
-            objdump_output=$(objdump -p "$nginx_binary" | grep GLIBC)
-            if [ -n "$objdump_output" ]; then
-                echo "✅ Nginx dynamic dependencies check succeeded."
+        else
+            # 如果不是静态编译，再尝试 ldd 和 GLIBC 检查
+            ldd_output=$(ldd "$nginx_binary" 2>/dev/null)
+            echo "$ldd_output"
+
+            if echo "$ldd_output" | grep -q "lib"; then
+                objdump_output=$(objdump -p "$nginx_binary" | grep GLIBC)
+                if [ -n "$objdump_output" ]; then
+                    echo "✅ Nginx dynamic dependencies check succeeded."
+                else
+                    echo "❌ Nginx verification failed: No GLIBC dependencies found in dynamic build."
+                    exit 1
+                fi
             else
-                echo "❌ Nginx verification failed: No GLIBC dependencies found in dynamic build."
+                echo "❌ Nginx verification failed: Unknown or unexpected dynamic link format."
                 exit 1
             fi
-        else
-            echo "❌ Nginx verification failed: Unknown build type."
-            exit 1
         fi
 
     - name: Create package directory
