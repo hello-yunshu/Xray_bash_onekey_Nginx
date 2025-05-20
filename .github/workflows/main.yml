@@ -357,8 +357,9 @@ jobs:
     - name: Verify Nginx installation
       run: |
         /usr/local/nginx/sbin/nginx -V
-        ldd /usr/local/nginx/sbin/nginx  # 应显示 "not a dynamic executable"
-        #objdump -p /usr/local/nginx/sbin/nginx | grep GLIBC  # 检查 GLIBC 版本
+         # 应显示 "not a dynamic executable"
+        ldd /usr/local/nginx/sbin/nginx || true
+        objdump -p /usr/local/nginx/sbin/nginx | grep GLIBC  # 检查 GLIBC 版本
         if [ $? -ne 0 ]; then
           echo "Nginx verification failed!"
           exit 1
