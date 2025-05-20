@@ -356,13 +356,28 @@ jobs:
 
     - name: Verify Nginx installation
       run: |
-        /usr/local/nginx/sbin/nginx -V
-         # 应显示 "not a dynamic executable"
-        ldd /usr/local/nginx/sbin/nginx || true
-        objdump -p /usr/local/nginx/sbin/nginx | grep GLIBC  # 检查 GLIBC 版本
-        if [ $? -ne 0 ]; then
-          echo "Nginx verification failed!"
-          exit 1
+        nginx_binary="/usr/local/nginx/sbin/nginx"
+        nginx_v_output=$($nginx_binary -V 2>&1)
+        echo "$nginx_v_output"
+
+        ldd_output=$(ldd "$nginx_binary" 2>/dev/null)
+        echo "$ldd_output"
+
+        # 如果是静态编译，直接视为成功
+        if echo "$ldd_output" | grep -q "not a dynamic executable"; then
+            echo "✅ Nginx is statically compiled. Verification succeeded."
+        elif echo "$ldd_output" | grep -q "lib"; then
+            # 动态链接，检查 GLIBC 依赖是否存在
+            objdump_output=$(objdump -p "$nginx_binary" | grep GLIBC)
+            if [ -n "$objdump_output" ]; then
+                echo "✅ Nginx dynamic dependencies check succeeded."
+            else
+                echo "❌ Nginx verification failed: No GLIBC dependencies found in dynamic build."
+                exit 1
+            fi
+        else
+            echo "❌ Nginx verification failed: Unknown build type."
+            exit 1
         fi
 
     - name: Create package directory
