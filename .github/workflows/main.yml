@@ -208,13 +208,13 @@ jobs:
           exit 1
         fi
 
-    - name: Cache Jemalloc
-      id: cache-jemalloc
-      uses: actions/cache@v4
-      with:
-        path: |
-          /opt/jemalloc/
-        key: ${{ runner.os }}-jemalloc-static-${{ matrix.arch }}-${{ env.JEMALLOC_VERSION }}
+    # - name: Cache Jemalloc
+    #   id: cache-jemalloc
+    #   uses: actions/cache@v4
+    #   with:
+    #     path: |
+    #       /opt/jemalloc/
+    #     key: ${{ runner.os }}-jemalloc-static-${{ matrix.arch }}-${{ env.JEMALLOC_VERSION }}
 
     - name: Download and extract Jemalloc
       if: steps.cache-jemalloc.outputs.cache-hit != 'true'
@@ -222,7 +222,7 @@ jobs:
         wget -nc --no-check-certificate https://github.com/jemalloc/jemalloc/releases/download/${{ env.JEMALLOC_VERSION }}/jemalloc-${{ env.JEMALLOC_VERSION }}.tar.bz2
         tar -xvf jemalloc-${{ env.JEMALLOC_VERSION }}.tar.bz2
         cd jemalloc-${{ env.JEMALLOC_VERSION }}
-        # export CC=musl-gcc
+        export CC=musl-gcc
         ./configure --enable-static --disable-shared --prefix=/opt/jemalloc CFLAGS="-O3"
         make -j$(($(nproc) + 1))
         sudo make install
@@ -249,20 +249,20 @@ jobs:
       run: |
         wget -nc https://github.com/PCRE2Project/pcre2/releases/download/pcre2-${{ env.PCRE_VERSION }}/pcre2-${{ env.PCRE_VERSION }}.tar.gz
         tar -xf pcre2-${{ env.PCRE_VERSION }}.tar.gz
-        cd pcre2-${{ env.PCRE_VERSION }}
+        # cd pcre2-${{ env.PCRE_VERSION }}
         # export CC=musl-gcc
-        ./configure --prefix=/opt/static-libs-pcre2 --disable-shared --enable-static CFLAGS="-O3"
-        make -j$(nproc)
-        sudo make install
+        # ./configure --prefix=/opt/static-libs-pcre2 --disable-shared --enable-static CFLAGS="-O3"
+        # make -j$(nproc)
+        # sudo make install
 
-    - name: Check PCRE2 installation
-      if: steps.cache-pcre2.outputs.cache-hit != 'true'
-      run: |
-        ls -la /opt/static-libs-pcre2/lib/libpcre2-*.a
-        if [ ! -f "/opt/static-libs-pcre2/lib/libpcre2-8.a" ]; then
-          echo "PCRE2 static build failed!"
-          exit 1
-        fi
+    # - name: Check PCRE2 installation
+    #   if: steps.cache-pcre2.outputs.cache-hit != 'true'
+    #   run: |
+    #     ls -la /opt/static-libs-pcre2/lib/libpcre2-*.a
+    #     if [ ! -f "/opt/static-libs-pcre2/lib/libpcre2-8.a" ]; then
+    #       echo "PCRE2 static build failed!"
+    #       exit 1
+    #     fi
 
     # - name: Cache zlib
     #   id: cache-zlib
@@ -277,21 +277,21 @@ jobs:
       run: |
         wget -nc https://zlib.net/zlib-${{ env.ZLIB_VERSION }}.tar.gz
         tar -xf zlib-${{ env.ZLIB_VERSION }}.tar.gz
-        cd zlib-${{ env.ZLIB_VERSION }}
+        # cd zlib-${{ env.ZLIB_VERSION }}
         # export CC=musl-gcc
-        export CFLAGS="-O3"
-        ./configure --prefix=/opt/static-libs-zlib --static
-        make -j$(nproc)
-        sudo make install
+        # export CFLAGS="-O3"
+        # ./configure --prefix=/opt/static-libs-zlib --static
+        # make -j$(nproc)
+        # sudo make install
 
-    - name: Check zlib installation
-      if: steps.cache-zlib.outputs.cache-hit != 'true'
-      run: |
-        ls -la /opt/static-libs-zlib/lib/libz.a
-        if [ ! -f "/opt/static-libs-zlib/lib/libz.a" ]; then
-          echo "zlib static build failed!"
-          exit 1
-        fi
+    # - name: Check zlib installation
+    #   if: steps.cache-zlib.outputs.cache-hit != 'true'
+    #   run: |
+    #     ls -la /opt/static-libs-zlib/lib/libz.a
+    #     if [ ! -f "/opt/static-libs-zlib/lib/libz.a" ]; then
+    #       echo "zlib static build failed!"
+    #       exit 1
+    #     fi
 
     - name: Cache Nginx
       id: cache-nginx
@@ -319,7 +319,7 @@ jobs:
     - name: Extract Nginx
       run: |
         cd nginx-${{ env.NGINX_VERSION }}
-        #export CC=musl-gcc
+        export CC=musl-gcc
         ./configure --prefix=/usr/local/nginx \
           --user=nobody \
           --group=nogroup \
@@ -336,8 +336,8 @@ jobs:
           --with-http_sub_module \
           --with-http_v2_module \
           --with-http_v3_module \
-          --with-cc-opt='-static -static-libgcc -O3 -fPIC -I/opt/static-libs-zlib/include -I/opt/static-libs-pcre2/include' \
-          --with-ld-opt='-static -L/opt/jemalloc/lib -ljemalloc -L/opt/static-libs-zlib/lib -L/opt/static-libs-pcre2/lib' \
+          --with-cc-opt='-static -O3 -I/opt/jemalloc/include' \\
+          --with-ld-opt='-static -L/opt/jemalloc/lib -ljemalloc' \
           --with-openssl="$(pwd)/../openssl-${{ env.OPENSSL_VERSION }}" \
           --with-openssl-opt='no-shared no-dso no-hw no-engine' \
           --with-zlib="$(pwd)/../zlib-${{ env.ZLIB_VERSION }}" \
