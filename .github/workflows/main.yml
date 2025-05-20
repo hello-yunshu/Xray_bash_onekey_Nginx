@@ -335,8 +335,8 @@ jobs:
           --with-http_sub_module \
           --with-http_v2_module \
           --with-http_v3_module \
-          --with-cc-opt='-static -static-libgcc -Os -fPIC -I/opt/static-libs/include' \
-          --with-ld-opt='-static -L/opt/jemalloc/lib -ljemalloc -L/opt/static-libs/lib' \
+          --with-cc-opt='-static -static-libgcc -Os -fPIC -I/opt/static-libs-zlib/include -I/opt/static-libs-pcre2/include' \
+          --with-ld-opt='-static -L/opt/jemalloc/lib -ljemalloc -L/opt/static-libs-zlib/lib -L/opt/static-libs-pcre2/lib' \
           --with-openssl="$(pwd)/../openssl-${{ env.OPENSSL_VERSION }}" \
           --with-openssl-opt='no-shared no-dso no-hw no-engine' \
           --with-zlib="$(pwd)/../zlib-${{ env.ZLIB_VERSION }}" \
