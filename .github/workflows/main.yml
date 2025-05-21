@@ -182,7 +182,7 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get upgrade -y
-        sudo apt-get install -y build-essential wget curl tar gzip bzip2 xz-utils libtool autoconf automake pkg-config
+        sudo apt-get install -y build-essential wget curl tar gzip bzip2 xz-utils libtool autoconf automake pkg-config libcrypt-dev
         sudo apt-get install -y musl-tools
 
     - name: Cache OpenSSL
@@ -208,11 +208,22 @@ jobs:
           exit 1
         fi
 
+    - name: Cache Jemalloc
+      id: cache-jemalloc
+      uses: actions/cache@v4
+      with:
+        path: |
+          ./jemalloc-${{ env.JEMALLOC_VERSION }}/
+        key: ${{ runner.os }}-jemalloc-downloaded-${{ matrix.arch }}-${{ env.JEMALLOC_VERSION }}
+
     - name: Download and extract Jemalloc
-      # if: steps.cache-jemalloc.outputs.cache-hit != 'true'
+      if: steps.cache-jemalloc.outputs.cache-hit != 'true'
       run: |
         wget -nc --no-check-certificate https://github.com/jemalloc/jemalloc/releases/download/${{ env.JEMALLOC_VERSION }}/jemalloc-${{ env.JEMALLOC_VERSION }}.tar.bz2
         tar -xvf jemalloc-${{ env.JEMALLOC_VERSION }}.tar.bz2
+
+    - name: Build and install Jemalloc
+      run: |
         cd jemalloc-${{ env.JEMALLOC_VERSION }}
         # export CC=musl-gcc
         ./configure --enable-static --disable-shared --prefix=/opt/jemalloc CFLAGS="-O3"
@@ -220,7 +231,6 @@ jobs:
         sudo make install
 
     - name: Check Jemalloc installation
-      # if: steps.cache-jemalloc.outputs.cache-hit != 'true'
       run: |
         ls -la /opt/jemalloc/
         if [ ! -d "/opt/jemalloc/" ]; then
@@ -235,22 +245,28 @@ jobs:
         path: |
           ./pcre2-${{ env.PCRE_VERSION }}/
         key: ${{ runner.os }}-pcre2-downloaded-${{ matrix.arch }}-${{ env.PCRE_VERSION }}
-    
+
     - name: Download PCRE2
       if: steps.cache-pcre2.outputs.cache-hit != 'true'
       run: |
         wget -nc https://github.com/PCRE2Project/pcre2/releases/download/pcre2-${{ env.PCRE_VERSION }}/pcre2-${{ env.PCRE_VERSION }}.tar.gz
         tar -xf pcre2-${{ env.PCRE_VERSION }}.tar.gz
-    
-    - name: Check PCRE2 download
-      if: steps.cache-pcre2.outputs.cache-hit != 'true'
+
+    - name: Build and install PCRE2
       run: |
-        ls -la ./pcre2-${{ env.PCRE_VERSION }}/
-        if [ ! -d "./pcre2-${{ env.PCRE_VERSION }}/" ]; then
-          echo "PCRE2 download failed!"
+        cd pcre2-${{ env.PCRE_VERSION }}
+        ./configure --prefix=/opt/pcre --enable-static --disable-shared CFLAGS="-O3"
+        make -j$(($(nproc) + 1))
+        sudo make install
+
+    - name: Check PCRE2 installation
+      run: |
+        ls -la /opt/pcre/
+        if [ ! -d "/opt/pcre/" ]; then
+          echo "PCRE2 installation failed!"
           exit 1
         fi
-    
+
     - name: Cache zlib
       id: cache-zlib
       uses: actions/cache@v4
@@ -258,19 +274,26 @@ jobs:
         path: |
           ./zlib-${{ env.ZLIB_VERSION }}/
         key: ${{ runner.os }}-zlib-downloaded-${{ matrix.arch }}-${{ env.ZLIB_VERSION }}
-    
+
     - name: Download zlib
       if: steps.cache-zlib.outputs.cache-hit != 'true'
       run: |
         wget -nc https://zlib.net/zlib-${{ env.ZLIB_VERSION }}.tar.gz
         tar -xf zlib-${{ env.ZLIB_VERSION }}.tar.gz
-    
-    - name: Check zlib download
-      if: steps.cache-zlib.outputs.cache-hit != 'true'
+
+    - name: Build and install zlib
       run: |
-        ls -la ./zlib-${{ env.ZLIB_VERSION }}/
-        if [ ! -d "./zlib-${{ env.ZLIB_VERSION }}/" ]; then
-          echo "zlib download failed!"
+        cd zlib-${{ env.ZLIB_VERSION }}
+        export CFLAGS="-O3"
+        ./configure --prefix=/opt/zlib --static
+        make -j$(($(nproc) + 1))
+        sudo make install
+
+    - name: Check zlib installation
+      run: |
+        ls -la /opt/zlib/
+        if [ ! -d "/opt/zlib/" ]; then
+          echo "zlib installation failed!"
           exit 1
         fi
 
@@ -317,12 +340,12 @@ jobs:
           --with-http_sub_module \
           --with-http_v2_module \
           --with-http_v3_module \
-          --with-cc-opt='-static -O3 -I/opt/jemalloc/include -fPIC' \
-          --with-ld-opt='-static -L/opt/jemalloc/lib -ljemalloc -lc_nonshared' \
+          --with-cc-opt='-O3 -static-libgcc -fPIC' \
+          --with-ld-opt="-L/opt/jemalloc/lib -L/opt/zlib/lib -L/opt/pcre/lib \
+                        -Wl,--start-group -Wl,-Bstatic -ljemalloc -lz -lpcre -lcrypt \
+                        -Wl,-Bdynamic -Wl,--end-group -lpthread -ldl" \
           --with-openssl="$(pwd)/../openssl-${{ env.OPENSSL_VERSION }}" \
-          --with-openssl-opt='no-shared no-dso no-hw no-engine' \
-          --with-zlib="$(pwd)/../zlib-${{ env.ZLIB_VERSION }}" \
-          --with-pcre="$(pwd)/../pcre2-${{ env.PCRE_VERSION }}"
+          --with-openssl-opt='no-shared no-dso no-hw no-engine'
 
         make -j$(($(nproc) + 1))
         sudo make install
