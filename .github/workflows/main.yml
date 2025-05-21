@@ -336,7 +336,7 @@ jobs:
           --with-http_sub_module \
           --with-http_v2_module \
           --with-http_v3_module \
-          --with-cc-opt='-static -O3 -I/opt/jemalloc/include' \\
+          --with-cc-opt='-static -O3 -I/opt/jemalloc/include' \
           --with-ld-opt='-static -L/opt/jemalloc/lib -ljemalloc' \
           --with-openssl="$(pwd)/../openssl-${{ env.OPENSSL_VERSION }}" \
           --with-openssl-opt='no-shared no-dso no-hw no-engine' \
