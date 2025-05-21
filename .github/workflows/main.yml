@@ -182,7 +182,7 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get upgrade -y
-        sudo apt-get install -y build-essential libpcre3 libpcre3-dev zlib1g zlib1g-dev libssl-dev wget tar bzip2 unzip
+        sudo apt-get install -y build-essential wget curl tar gzip bzip2 xz-utils libtool autoconf automake pkg-config
         sudo apt-get install -y musl-tools
 
     - name: Cache OpenSSL
@@ -222,7 +222,7 @@ jobs:
         wget -nc --no-check-certificate https://github.com/jemalloc/jemalloc/releases/download/${{ env.JEMALLOC_VERSION }}/jemalloc-${{ env.JEMALLOC_VERSION }}.tar.bz2
         tar -xvf jemalloc-${{ env.JEMALLOC_VERSION }}.tar.bz2
         cd jemalloc-${{ env.JEMALLOC_VERSION }}
-        export CC=musl-gcc
+        # export CC=musl-gcc
         ./configure --enable-static --disable-shared --prefix=/opt/jemalloc CFLAGS="-O3"
         make -j$(($(nproc) + 1))
         sudo make install
@@ -319,7 +319,7 @@ jobs:
     - name: Extract Nginx
       run: |
         cd nginx-${{ env.NGINX_VERSION }}
-        export CC=musl-gcc
+        # export CC=musl-gcc
         ./configure --prefix=/usr/local/nginx \
           --user=nobody \
           --group=nogroup \
