@@ -317,8 +317,8 @@ jobs:
           --with-http_sub_module \
           --with-http_v2_module \
           --with-http_v3_module \
-          --with-cc-opt='-static -O3 -I/opt/jemalloc/include -fPIC' \
-          --with-ld-opt='-static -L/opt/jemalloc/lib -ljemalloc -lc_nonshared' \
+          --with-cc-opt='-O3 -static-libgcc -fPIC' \
+          --with-ld-opt="-L/opt/jemalloc/lib -Wl,-Bstatic -ljemalloc -Wl,-Bdynamic" \
           --with-openssl="$(pwd)/../openssl-${{ env.OPENSSL_VERSION }}" \
           --with-openssl-opt='no-shared no-dso no-hw no-engine' \
           --with-zlib="$(pwd)/../zlib-${{ env.ZLIB_VERSION }}" \
