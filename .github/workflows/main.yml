@@ -223,7 +223,6 @@ jobs:
         tar -xvf jemalloc-${{ env.JEMALLOC_VERSION }}.tar.bz2
 
     - name: Build and install Jemalloc
-      if: steps.cache-jemalloc.outputs.cache-hit != 'true'
       run: |
         cd jemalloc-${{ env.JEMALLOC_VERSION }}
         # export CC=musl-gcc
@@ -254,7 +253,6 @@ jobs:
         tar -xf pcre2-${{ env.PCRE_VERSION }}.tar.gz
 
     - name: Build and install PCRE2
-      if: steps.cache-pcre2.outputs.cache-hit != 'true'
       run: |
         cd pcre2-${{ env.PCRE_VERSION }}
         ./configure --prefix=/opt/pcre --enable-static --disable-shared CFLAGS="-O3"
@@ -284,7 +282,6 @@ jobs:
         tar -xf zlib-${{ env.ZLIB_VERSION }}.tar.gz
 
     - name: Build and install zlib
-      if: steps.cache-zlib.outputs.cache-hit != 'true'
       run: |
         cd zlib-${{ env.ZLIB_VERSION }}
         export CFLAGS="-O3"
