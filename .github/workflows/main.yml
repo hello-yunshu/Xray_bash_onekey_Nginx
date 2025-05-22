@@ -341,11 +341,9 @@ jobs:
           --with-http_v2_module \
           --with-http_v3_module \
           --with-cc-opt='-O3 -static-libgcc -fPIC' \
-          --with-ld-opt="-L/opt/jemalloc/lib -Wl,-Bstatic -ljemalloc -lz -lpcre -Wl,-Bdynamic -lpthread -ldl" \
+          --with-ld-opt="-L/opt/jemalloc/lib -L/opt/zlib/lib -L/opt/pcre/lib -Wl,-Bstatic -ljemalloc -lz -lpcre -Wl,-Bdynamic -lpthread -ldl" \
           --with-openssl="$(pwd)/../openssl-${{ env.OPENSSL_VERSION }}" \
-          --with-openssl-opt='no-shared no-dso no-hw no-engine' \
-          --with-zlib=/opt/zlib \
-          --with-pcre=/opt/pcre
+          --with-openssl-opt='no-shared no-dso no-hw no-engine'
 
         make -j$(($(nproc) + 1))
         sudo make install
