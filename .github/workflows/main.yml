@@ -396,10 +396,10 @@ jobs:
         set -x
         nginx_binary="/usr/local/nginx/sbin/nginx"
         
-        # 确保日志目录存在并设置正确的权限
-        sudo mkdir -p /usr/local/nginx/logs
-        sudo chown nobody:nogroup /usr/local/nginx/logs
-        sudo chmod 755 /usr/local/nginx/logs
+        # 确保必要的目录存在并设置正确的权限
+        sudo mkdir -p /usr/local/nginx/logs /usr/local/nginx/client_body_temp /usr/local/nginx/proxy_temp /usr/local/nginx/fastcgi_temp /usr/local/nginx/uwsgi_temp /usr/local/nginx/scgi_temp
+        sudo chown -R nobody:nogroup /usr/local/nginx/logs /usr/local/nginx/client_body_temp /usr/local/nginx/proxy_temp /usr/local/nginx/fastcgi_temp /usr/local/nginx/uwsgi_temp /usr/local/nginx/scgi_temp
+        sudo chmod 755 /usr/local/nginx/logs /usr/local/nginx/client_body_temp /usr/local/nginx/proxy_temp /usr/local/nginx/fastcgi_temp /usr/local/nginx/uwsgi_temp /usr/local/nginx/scgi_temp
         
         # 测试 Nginx 配置是否正确
         echo "Testing Nginx configuration..."
