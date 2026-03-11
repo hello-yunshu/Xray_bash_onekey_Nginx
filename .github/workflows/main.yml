@@ -225,7 +225,7 @@ jobs:
     - name: Build and install Jemalloc
       run: |
         cd jemalloc-${{ env.JEMALLOC_VERSION }}
-        # export CC=musl-gcc
+        # 为 jemalloc 使用系统默认 gcc，避免 musl-gcc 导致的指针大小检测错误
         ./configure --enable-static --disable-shared --prefix=/opt/jemalloc CFLAGS="-O3"
         make -j$(($(nproc) + 1))
         sudo make install
@@ -391,6 +391,60 @@ jobs:
             fi
         fi
 
+    - name: Test Nginx functionality
+      run: |
+        set -x
+        nginx_binary="/usr/local/nginx/sbin/nginx"
+        
+        # 测试 Nginx 配置是否正确
+        echo "Testing Nginx configuration..."
+        config_test=$($nginx_binary -t 2>&1)
+        echo "$config_test"
+        if echo "$config_test" | grep -q "test failed"; then
+            echo "❌ Nginx configuration test failed!"
+            exit 1
+        else
+            echo "✅ Nginx configuration test passed."
+        fi
+        
+        # 测试 Nginx 是否能正常启动
+        echo "Testing Nginx start..."
+        sudo $nginx_binary
+        sleep 2
+        
+        # 检查 Nginx 进程是否运行
+        if pgrep -x "nginx" > /dev/null; then
+            echo "✅ Nginx process is running."
+        else
+            echo "❌ Nginx failed to start!"
+            exit 1
+        fi
+        
+        # 测试 Nginx 是否能响应请求
+        echo "Testing Nginx response..."
+        response=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:80)
+        echo "HTTP response code: $response"
+        if [ "$response" == "200" ] || [ "$response" == "301" ]; then
+            echo "✅ Nginx is responding correctly."
+        else
+            echo "❌ Nginx is not responding correctly!"
+            exit 1
+        fi
+        
+        # 停止 Nginx
+        echo "Stopping Nginx..."
+        sudo $nginx_binary -s stop
+        sleep 1
+        
+        if ! pgrep -x "nginx" > /dev/null; then
+            echo "✅ Nginx stopped successfully."
+        else
+            echo "❌ Nginx failed to stop!"
+            exit 1
+        fi
+        
+        echo "✅ All Nginx functionality tests passed!"
+
     - name: Create package directory
       run: |
         mkdir -p package/nginx
@@ -449,3 +503,35 @@ jobs:
         draft: false
         prerelease: false
         allowUpdates: true
+        
+  cleanup-old-releases:
+    needs: upload-release-assets
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+    - name: Cleanup old releases
+      run: |
+        # Get all releases, sort by created_at, and delete all except the 5 most recent
+        RELEASES=$(curl -s -H "Authorization: token ${{ github.token }}" "https://api.github.com/repos/${{ github.repository }}/releases?per_page=100")
+        
+        # Extract release IDs, sorted by created_at descending
+        RELEASE_IDS=$(echo "$RELEASES" | jq -r 'sort_by(.created_at) | reverse | .[].id')
+        
+        # Count total releases
+        TOTAL_RELEASES=$(echo "$RELEASE_IDS" | wc -l)
+        echo "Total releases: $TOTAL_RELEASES"
+        
+        # Keep the first 5 releases, delete the rest
+        KEEP_COUNT=5
+        COUNT=0
+        
+        echo "$RELEASE_IDS" | while read -r RELEASE_ID; do
+          COUNT=$((COUNT+1))
+          if [ $COUNT -gt $KEEP_COUNT ]; then
+            echo "Deleting release with ID: $RELEASE_ID"
+            curl -s -X DELETE -H "Authorization: token ${{ github.token }}" "https://api.github.com/repos/${{ github.repository }}/releases/$RELEASE_ID"
+          else
+            echo "Keeping release with ID: $RELEASE_ID"
+          fi
+        done
