@@ -398,8 +398,13 @@ jobs:
         
         # 确保必要的目录存在并设置正确的权限
         sudo mkdir -p /usr/local/nginx/logs /usr/local/nginx/client_body_temp /usr/local/nginx/proxy_temp /usr/local/nginx/fastcgi_temp /usr/local/nginx/uwsgi_temp /usr/local/nginx/scgi_temp
+        # 设置所有Nginx目录的权限
         sudo chown -R nobody:nogroup /usr/local/nginx/logs /usr/local/nginx/client_body_temp /usr/local/nginx/proxy_temp /usr/local/nginx/fastcgi_temp /usr/local/nginx/uwsgi_temp /usr/local/nginx/scgi_temp
         sudo chmod 755 /usr/local/nginx/logs /usr/local/nginx/client_body_temp /usr/local/nginx/proxy_temp /usr/local/nginx/fastcgi_temp /usr/local/nginx/uwsgi_temp /usr/local/nginx/scgi_temp
+        # 确保配置和静态文件目录有正确的读取权限
+        sudo chown -R root:root /usr/local/nginx/conf /usr/local/nginx/html
+        sudo chmod 755 /usr/local/nginx/conf /usr/local/nginx/html
+        sudo chmod 644 /usr/local/nginx/conf/*
         
         # 测试 Nginx 配置是否正确
         echo "Testing Nginx configuration..."
