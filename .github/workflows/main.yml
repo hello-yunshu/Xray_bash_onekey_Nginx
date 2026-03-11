@@ -396,9 +396,14 @@ jobs:
         set -x
         nginx_binary="/usr/local/nginx/sbin/nginx"
         
+        # 确保日志目录存在并设置正确的权限
+        sudo mkdir -p /usr/local/nginx/logs
+        sudo chown nobody:nogroup /usr/local/nginx/logs
+        sudo chmod 755 /usr/local/nginx/logs
+        
         # 测试 Nginx 配置是否正确
         echo "Testing Nginx configuration..."
-        config_test=$($nginx_binary -t 2>&1)
+        config_test=$(sudo -u nobody $nginx_binary -t 2>&1)
         echo "$config_test"
         if echo "$config_test" | grep -q "test failed"; then
             echo "❌ Nginx configuration test failed!"
