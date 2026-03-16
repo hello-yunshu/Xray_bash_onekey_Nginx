@@ -187,7 +187,7 @@ jobs:
 
     - name: Cache OpenSSL
       id: cache-openssl
-      uses: actions/cache@v4
+      uses: actions/cache@main
       with:
         path: |
           ./openssl-${{ env.OPENSSL_VERSION }}/
@@ -210,7 +210,7 @@ jobs:
 
     - name: Cache Jemalloc
       id: cache-jemalloc
-      uses: actions/cache@v4
+      uses: actions/cache@main
       with:
         path: |
           ./jemalloc-${{ env.JEMALLOC_VERSION }}/
@@ -240,7 +240,7 @@ jobs:
 
     - name: Cache PCRE2
       id: cache-pcre2
-      uses: actions/cache@v4
+      uses: actions/cache@main
       with:
         path: |
           ./pcre2-${{ env.PCRE_VERSION }}/
@@ -269,7 +269,7 @@ jobs:
 
     - name: Cache zlib
       id: cache-zlib
-      uses: actions/cache@v4
+      uses: actions/cache@main
       with:
         path: |
           ./zlib-${{ env.ZLIB_VERSION }}/
@@ -299,7 +299,7 @@ jobs:
 
     - name: Cache Nginx
       id: cache-nginx
-      uses: actions/cache@v4
+      uses: actions/cache@main
       with:
         path: |
           ./nginx-${{ env.NGINX_VERSION }}/
@@ -470,7 +470,7 @@ jobs:
         cd ..
 
     - name: Upload artifact
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@main
       with:
         name: xray-nginx-custom-${{ matrix.arch }}.tar.gz
         path: xray-nginx-custom-${{ matrix.arch }}.tar.gz
@@ -493,7 +493,7 @@ jobs:
         echo "JEMALLOC_VERSION=$JEMALLOC_VERSION" >> $GITHUB_ENV
 
     - name: Download build artifacts
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@main
       with: 
         path: artifacts
         pattern: "*.tar.gz"
