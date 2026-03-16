@@ -505,7 +505,7 @@ jobs:
         echo "TAG_NAME=v$(date '+%Y.%m.%d')" >> $GITHUB_ENV
 
     - name: Upload release assets
-      uses: ncipollo/release-action@v1
+      uses: ncipollo/release-action@main
       with:
         artifacts: "artifacts/xray-nginx-custom-*.tar.gz"
         tag: "${{ env.TAG_NAME }}"
