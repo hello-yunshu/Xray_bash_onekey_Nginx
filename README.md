@@ -1,51 +1,53 @@
-# 自动编译 Nginx for Xray_bash_onekey
+# 自动编译全静态 Nginx for Xray_bash_onekey
 
 ## 简介
-本项目旨在为 [hello-yunshu/Xray_bash_onekey](https://github.com/hello-yunshu/Xray_bash_onekey) 提供一个优化的 Nginx 版本，它使用最新的 OpenSSL、Jemalloc 和 Nginx 源码进行编译。通过集成这些组件，我们确保了更高的性能和安全性，特别适合需要快速部署和高并发处理的场景。
 
-## 特点
-- **最新版本**：始终使用最新的稳定版 Nginx、OpenSSL 和 Jemalloc 进行编译。
-- **性能优化**：采用 Jemalloc 作为内存分配器以提升内存管理效率。
-- **安全增强**：利用最新的 OpenSSL 库来保证数据传输的安全性。
-- **一键安装**：简化了安装流程，使得配置和服务启动更加简便。
+本仓库为 [hello-yunshu/Xray_bash_onekey](https://github.com/hello-yunshu/Xray_bash_onekey) 自动构建可直接分发的 Nginx 二进制包。构建目标是全静态链接 Nginx，并将 OpenSSL、Jemalloc、PCRE2、zlib 等依赖一并编入发布产物，减少目标服务器上的运行时依赖。
 
-## 安装指南
+如果 CI 无法生成全静态二进制，发布流程会直接失败，不再把动态链接产物标记为全静态。
 
-### 前提条件
-在开始之前，请确保您的系统满足以下要求：
-- 支持的操作系统：Linux（已测试于 Ubuntu, CentOS）
-- 支持的架构：X86_64，arm64
-- 已安装基础构建工具和依赖项
+## 发布产物
 
-### 安装步骤
-1. 下载此仓库最新 Release
+每个 Release 默认包含：
 
-2. 安装必须的库文件：
-   pcre、zlib
+- `xray-nginx-custom-x86.tar.gz`：x86_64 服务器使用。
+- `xray-nginx-custom-arm.tar.gz`：aarch64/arm64 服务器使用。
+- `release-manifest.json`：主项目消费的发布清单，包含架构、文件名、版本和 SHA256。
+- `SHA256SUMS` 与单独的 `.sha256` 文件：用于校验下载文件。
+- `build-static-report-*.txt`：记录 `file`、`ldd`、`objdump`、`nginx -V` 的静态链接验证结果。
 
-3. 赋予执行权限并运行：
-    ```bash
-    chmod +x nginx
-    ./nginx
-    ```
+## 手动安装
 
-4. 配置 Nginx：
-   根据您的需求修改 Nginx 配置文件（位于 `/usr/local/nginx/nginx.conf`）, 
-   默认以 `nobody:nogroup` 用户运行
+推荐优先通过主项目安装脚本使用本仓库产物。确需手动安装时，可以按当前系统架构从最新 Release 下载对应包：
 
-5. 启动或重启 Nginx 服务：
-    ```bash
-    sudo systemctl start nginx
-    # 或者
-    sudo systemctl restart nginx
-    ```
+```bash
+arch="$(uname -m)"
+case "$arch" in
+  x86_64) asset_arch="x86" ;;
+  aarch64|arm64) asset_arch="arm" ;;
+  *) echo "unsupported architecture: $arch"; exit 1 ;;
+esac
 
-## 注意事项
-- 下载过程可能需要一定时间，具体取决于您的服务器的网络性能。
-- 如果遇到任何问题或者有改进建议，请随时提交 [Issue](https://github.com/hello-yunshu/Xray_bash_onekey_Nginx/issues) 或者 Pull Request。
+base_url="https://github.com/hello-yunshu/Xray_bash_onekey_Nginx/releases/latest/download"
 
-## 联系方式
-如果您有任何疑问或建议，欢迎通过以下方式联系我们：
-- GitHub Issues: [Issues](https://github.com/hello-yunshu/Xray_bash_onekey_Nginx/issues)
+curl -fLO "${base_url}/release-manifest.json"
+filename="$(jq -r --arg arch "$asset_arch" '.assets[] | select(.arch == $arch) | .filename' release-manifest.json)"
+sha256="$(jq -r --arg arch "$asset_arch" '.assets[] | select(.arch == $arch) | .sha256' release-manifest.json)"
 
-感谢您选择我们的项目！希望这个自动编译的 Nginx 能够为您的部署带来便利。
+curl -fLO "${base_url}/${filename}"
+echo "${sha256}  ${filename}" | sha256sum -c -
+
+sudo rm -rf /usr/local/nginx
+sudo tar -xzf "${filename}" -C /usr/local
+sudo /usr/local/nginx/sbin/nginx -t
+```
+
+## 与主项目的关系
+
+`Xray_bash_onekey` 会根据 `release-manifest.json` 选择正确架构的包，并在存在 SHA256 时进行校验。旧 Release 如果没有 manifest，主项目会回退到历史文件名，避免已有版本无法安装。
+
+## 构建说明
+
+GitHub Actions 每 2 小时检查一次版本。只有 Nginx 或核心构建依赖版本变化时才会构建并发布；发布成功后才会更新 `.github/previous_versions.json`，避免定时检查产生无意义提交。
+
+`.github/previous_versions.json` 只是本仓库判断“上次成功构建使用了哪些源码/依赖版本”的内部快照。主项目不会直接读取这个文件；主项目读取的是 `Xray_bash_onekey_api` 仓库里的 `xray_shell_versions.json`。API 仓库会根据本仓库最新 Release tag 更新 `nginx_build_online_version`，主项目再用这个版本号下载对应 Release。
