@@ -38,8 +38,8 @@ jobs:
         nginx_online_version=$(echo "$get_current_versions_all" | jq -r '.nginx_online_version')
         openssl_online_version=$(echo "$get_current_versions_all" | jq -r '.openssl_online_version')
         jemalloc_online_version=$(echo "$get_current_versions_all" | jq -r '.jemalloc_online_version')
-        latest_pcre2=$(curl -s https://api.github.com/repos/PCRE2Project/pcre2/releases/latest | jq -r '.tag_name' | sed 's/^pcre2-//')
-        latest_zlib=$(curl -s https://zlib.net/ | grep -oP 'zlib-\K[\d\.]+(?=\.tar\.gz)' | sort -V | tail -1)
+        latest_pcre2=$(curl -s -H "Authorization: token ${{ github.token }}" https://api.github.com/repos/PCRE2Project/pcre2/releases/latest | jq -r '.tag_name' | sed 's/^pcre2-//')
+        latest_zlib=$(curl -s -H "Authorization: token ${{ github.token }}" "https://api.github.com/repos/madler/zlib/tags?per_page=10" | jq -r '[.[].name | select(test("^v?[0-9]+\\.[0-9]+\\.[0-9]+$")) | ltrimstr("v")] | sort_by(split(".") | map(tonumber)) | last // empty')
         release_version="$(date -u '+%Y.%m.%d').${GITHUB_RUN_NUMBER}"
 
         if [ -z "$nginx_build_online_version" ] || [ -z "$nginx_online_version" ] || \
@@ -131,7 +131,7 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get upgrade -y
-        sudo apt-get install -y build-essential wget curl tar gzip bzip2 xz-utils libtool autoconf automake pkg-config libcrypt-dev musl-tools file binutils
+        sudo apt-get install -y build-essential wget curl tar gzip bzip2 xz-utils libtool autoconf automake pkg-config libcrypt-dev file binutils
 
     - name: Cache OpenSSL
       id: cache-openssl
@@ -144,7 +144,7 @@ jobs:
     - name: Download OpenSSL
       if: steps.cache-openssl.outputs.cache-hit != 'true'
       run: |
-        wget -nc --no-check-certificate https://www.openssl.org/source/openssl-${{ env.OPENSSL_VERSION }}.tar.gz
+        wget -nc https://www.openssl.org/source/openssl-${{ env.OPENSSL_VERSION }}.tar.gz
         tar -zxvf openssl-${{ env.OPENSSL_VERSION }}.tar.gz
 
     - name: Check OpenSSL download
@@ -166,7 +166,7 @@ jobs:
     - name: Download and extract Jemalloc
       if: steps.cache-jemalloc.outputs.cache-hit != 'true'
       run: |
-        wget -nc --no-check-certificate https://github.com/jemalloc/jemalloc/releases/download/${{ env.JEMALLOC_VERSION }}/jemalloc-${{ env.JEMALLOC_VERSION }}.tar.bz2
+        wget -nc https://github.com/jemalloc/jemalloc/releases/download/${{ env.JEMALLOC_VERSION }}/jemalloc-${{ env.JEMALLOC_VERSION }}.tar.bz2
         tar -xvf jemalloc-${{ env.JEMALLOC_VERSION }}.tar.bz2
 
     - name: Build and install Jemalloc
@@ -254,7 +254,7 @@ jobs:
     - name: Download Nginx
       if: steps.cache-nginx.outputs.cache-hit != 'true'
       run: |
-        wget -nc --no-check-certificate http://nginx.org/download/nginx-${{ env.NGINX_VERSION }}.tar.gz
+        wget -nc https://nginx.org/download/nginx-${{ env.NGINX_VERSION }}.tar.gz
         tar -zxvf nginx-${{ env.NGINX_VERSION }}.tar.gz
 
     - name: Check Nginx download
@@ -516,7 +516,18 @@ jobs:
           sha256sum xray-nginx-custom-*.tar.gz release-manifest.json > SHA256SUMS
         )
 
+    - name: Check if tag already exists
+      id: check_tag
+      run: |
+        if curl -s -o /dev/null -w "%{http_code}" -H "Authorization: token ${{ github.token }}" "https://api.github.com/repos/${{ github.repository }}/git/ref/tags/${TAG_NAME}" | grep -q "200"; then
+          echo "tag_exists=true" >> "$GITHUB_OUTPUT"
+          echo "Tag ${TAG_NAME} already exists, skipping release."
+        else
+          echo "tag_exists=false" >> "$GITHUB_OUTPUT"
+        fi
+
     - name: Upload release assets
+      if: steps.check_tag.outputs.tag_exists != 'true'
       uses: ncipollo/release-action@main
       with:
         artifacts: "artifacts/xray-nginx-custom-*.tar.gz,artifacts/xray-nginx-custom-*.tar.gz.sha256,artifacts/build-metadata-*.json,artifacts/build-static-report-*.txt,artifacts/release-manifest.json,artifacts/SHA256SUMS"
@@ -549,7 +560,7 @@ jobs:
           exit 1
         fi
         jq --arg nginx_build_version "${{ needs.check-versions.outputs.release_version }}" \
-          '.nginx_build_online_version = $nginx_build_version' \
+          '{nginx_online_version, openssl_online_version, jemalloc_online_version, pcre2_online_version, zlib_online_version, nginx_build_online_version: $nginx_build_version}' \
           "$current_versions_file" > .github/previous_versions.json
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Action"
