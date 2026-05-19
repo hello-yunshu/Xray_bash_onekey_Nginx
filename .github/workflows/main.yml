@@ -1,4 +1,4 @@
-name: Build and Release Static Nginx
+name: Build and Release Nginx
 
 on:
   schedule:
@@ -8,9 +8,15 @@ on:
       - main
   workflow_dispatch:
 
+concurrency:
+  group: build-nginx-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   check-versions:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
     outputs:
       should_run_build: ${{ steps.compare_versions.outputs.should_run_build }}
@@ -101,7 +107,10 @@ jobs:
   build:
     needs: check-versions
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: ubuntu-22.04
@@ -126,11 +135,12 @@ jobs:
       run: |
         echo "BUILD_TIME=$(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> "$GITHUB_ENV"
         echo "BUILD_IMAGE=$(lsb_release -d | cut -f2-)" >> "$GITHUB_ENV"
+        GLIBC_VERSION=$(ldd --version 2>&1 | head -1 | grep -oP '[\d.]+$' || ldd --version 2>&1 | head -1 | grep -oE '[0-9]+\.[0-9]+$')
+        echo "GLIBC_VERSION=$GLIBC_VERSION" >> "$GITHUB_ENV"
 
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get upgrade -y
         sudo apt-get install -y build-essential wget curl tar gzip bzip2 xz-utils libtool autoconf automake pkg-config libcrypt-dev file binutils
 
     - name: Cache OpenSSL
@@ -139,7 +149,7 @@ jobs:
       with:
         path: |
           ./openssl-${{ env.OPENSSL_VERSION }}/
-        key: ${{ runner.os }}-openssl-source-static-v2-${{ matrix.arch }}-${{ env.OPENSSL_VERSION }}
+        key: ${{ runner.os }}-openssl-source-mostly-static-v1-${{ matrix.arch }}-${{ env.OPENSSL_VERSION }}
 
     - name: Download OpenSSL
       if: steps.cache-openssl.outputs.cache-hit != 'true'
@@ -161,7 +171,7 @@ jobs:
       with:
         path: |
           ./jemalloc-${{ env.JEMALLOC_VERSION }}/
-        key: ${{ runner.os }}-jemalloc-source-static-v2-${{ matrix.arch }}-${{ env.JEMALLOC_VERSION }}
+        key: ${{ runner.os }}-jemalloc-source-mostly-static-v1-${{ matrix.arch }}-${{ env.JEMALLOC_VERSION }}
 
     - name: Download and extract Jemalloc
       if: steps.cache-jemalloc.outputs.cache-hit != 'true'
@@ -190,7 +200,7 @@ jobs:
       with:
         path: |
           ./pcre2-${{ env.PCRE_VERSION }}/
-        key: ${{ runner.os }}-pcre2-source-static-v2-${{ matrix.arch }}-${{ env.PCRE_VERSION }}
+        key: ${{ runner.os }}-pcre2-source-mostly-static-v1-${{ matrix.arch }}-${{ env.PCRE_VERSION }}
 
     - name: Download PCRE2
       if: steps.cache-pcre2.outputs.cache-hit != 'true'
@@ -219,7 +229,7 @@ jobs:
       with:
         path: |
           ./zlib-${{ env.ZLIB_VERSION }}/
-        key: ${{ runner.os }}-zlib-source-static-v2-${{ matrix.arch }}-${{ env.ZLIB_VERSION }}
+        key: ${{ runner.os }}-zlib-source-mostly-static-v1-${{ matrix.arch }}-${{ env.ZLIB_VERSION }}
 
     - name: Download zlib
       if: steps.cache-zlib.outputs.cache-hit != 'true'
@@ -249,7 +259,7 @@ jobs:
       with:
         path: |
           ./nginx-${{ env.NGINX_VERSION }}/
-        key: ${{ runner.os }}-nginx-source-static-v2-${{ matrix.arch }}-${{ env.NGINX_VERSION }}
+        key: ${{ runner.os }}-nginx-source-mostly-static-v1-${{ matrix.arch }}-${{ env.NGINX_VERSION }}
 
     - name: Download Nginx
       if: steps.cache-nginx.outputs.cache-hit != 'true'
@@ -265,11 +275,17 @@ jobs:
           exit 1
         fi
 
-    - name: Build Nginx as a fully static binary
+    - name: Clean OpenSSL build artifacts
+      run: |
+        cd openssl-${{ env.OPENSSL_VERSION }}
+        make distclean 2>/dev/null || true
+
+    - name: Build Nginx (mostly static, glibc dynamically linked)
       run: |
         cd nginx-${{ env.NGINX_VERSION }}
-        static_cc_opt="-O3 -fPIC -static -static-libgcc -I/opt/jemalloc/include -I/opt/zlib/include -I/opt/pcre2/include"
-        static_ld_opt="-static -L/opt/jemalloc/lib -L/opt/zlib/lib -L/opt/pcre2/lib -Wl,--start-group -Wl,--whole-archive -ljemalloc -Wl,--no-whole-archive -lz -lpcre2-8 -lcrypt -lpthread -ldl -lm -Wl,--end-group"
+        cc_opt="-O3 -fPIC -I/opt/jemalloc/include -I/opt/zlib/include -I/opt/pcre2/include"
+        ld_opt="-L/opt/jemalloc/lib -L/opt/zlib/lib -L/opt/pcre2/lib -Wl,--whole-archive -ljemalloc -Wl,--no-whole-archive -lz -lpcre2-8 -lcrypt -lpthread -ldl -lm"
+        openssl_opt="no-shared no-dso no-engine no-tests no-legacy"
 
         ./configure --prefix=/usr/local/nginx \
           --user=nobody \
@@ -288,11 +304,10 @@ jobs:
           --with-http_v2_module \
           --with-http_v3_module \
           --with-pcre-jit \
-          --with-cc=gcc \
-          --with-cc-opt="$static_cc_opt" \
-          --with-ld-opt="$static_ld_opt" \
+          --with-cc-opt="$cc_opt" \
+          --with-ld-opt="$ld_opt" \
           --with-openssl="$(pwd)/../openssl-${{ env.OPENSSL_VERSION }}" \
-          --with-openssl-opt='no-shared no-dso no-hw no-engine no-tests'
+          --with-openssl-opt="$openssl_opt"
 
         make -j$(($(nproc) + 1))
         sudo make install
@@ -305,11 +320,11 @@ jobs:
           exit 1
         fi
 
-    - name: Verify static Nginx binary
+    - name: Verify Nginx binary
       run: |
         set -x
         nginx_binary="/usr/local/nginx/sbin/nginx"
-        report_file="build-static-report-${{ matrix.arch }}.txt"
+        report_file="build-report-${{ matrix.arch }}.txt"
         nginx_v_output=$($nginx_binary -V 2>&1)
         file_output=$(file "$nginx_binary")
         needed_output=$(objdump -p "$nginx_binary" | grep NEEDED || true)
@@ -317,6 +332,8 @@ jobs:
 
         {
           echo "Architecture: ${{ matrix.arch }}"
+          echo "Build image: $BUILD_IMAGE"
+          echo "glibc version: $GLIBC_VERSION"
           echo "File output: $file_output"
           echo
           echo "ldd output:"
@@ -329,14 +346,24 @@ jobs:
           echo "$nginx_v_output"
         } | tee "$report_file"
 
-        if ! echo "$file_output" | grep -qi "statically linked"; then
-          echo "Nginx verification failed: binary is not fully static."
+        if echo "$file_output" | grep -qi "statically linked"; then
+          echo "Nginx verification failed: binary is fully static, expected mostly static with glibc dynamically linked."
           exit 1
         fi
 
-        if [ -n "$needed_output" ]; then
-          echo "Nginx verification failed: dynamic NEEDED entries found."
+        if echo "$needed_output" | grep -qE 'libssl|libcrypto|libpcre|libz|libjemalloc'; then
+          echo "Nginx verification failed: found third-party dynamic dependencies (libssl/libcrypto/libpcre/libz/libjemalloc)."
+          echo "These should be statically linked."
           exit 1
+        fi
+
+        if ! echo "$needed_output" | grep -q 'libc.so.6'; then
+          echo "Nginx verification failed: expected dynamic libc.so.6 dependency not found."
+          exit 1
+        fi
+
+        if ! echo "$needed_output" | grep -q 'libcrypt.so'; then
+          echo "Nginx verification warning: libcrypt.so not found in NEEDED entries (expected for auth_basic module)."
         fi
 
     - name: Test Nginx functionality
@@ -381,6 +408,154 @@ jobs:
           exit 1
         fi
 
+    - name: Test Xray_bash_onekey Nginx configs
+      run: |
+        set -x
+        nginx_binary="/usr/local/nginx/sbin/nginx"
+        test_root="$(mktemp -d)"
+        nginx_group="$(id -gn nobody 2>/dev/null || echo nogroup)"
+        mkdir -p "$test_root/conf/nginx" "$test_root/cert" "$test_root/html" "$test_root/logs"
+        openssl req -x509 -nodes -newkey rsa:2048 -days 1 \
+          -subj "/CN=example.com" \
+          -keyout "$test_root/cert/xray.key" \
+          -out "$test_root/cert/xray.crt"
+
+        cat > "$test_root/conf/nginx/127.0.0.1.wsServers" <<EOF
+        server 127.0.0.1:20001 weight=50 max_fails=2 fail_timeout=10;
+        EOF
+        cat > "$test_root/conf/nginx/127.0.0.1.grpcServers" <<EOF
+        server 127.0.0.1:30001 weight=50 max_fails=2 fail_timeout=10;
+        EOF
+        cat > "$test_root/conf/nginx/127.0.0.1.xhttpServers" <<EOF
+        server 127.0.0.1:40001 weight=50 max_fails=2 fail_timeout=10;
+        EOF
+        cat > "$test_root/conf/nginx/example.com.serverNames" <<EOF
+        example.com reality;
+        EOF
+        cat > "$test_root/conf/nginx/127.0.0.1.realityServers" <<EOF
+        server 127.0.0.1:9443 weight=50 max_fails=2 fail_timeout=10;
+        EOF
+
+        cat > "$test_root/conf/nginx/02-xray-server.conf" <<EOF
+        upstream xray-ws-server {
+            include $test_root/conf/nginx/*.wsServers;
+        }
+
+        upstream xray-grpc-server {
+            include $test_root/conf/nginx/*.grpcServers;
+        }
+
+        upstream xray-xhttp-server {
+            include $test_root/conf/nginx/*.xhttpServers;
+        }
+        EOF
+
+        cat > "$test_root/conf/nginx/00-xray.conf" <<EOF
+        server {
+            listen 8443 ssl reuseport;
+            listen [::]:8443 ssl reuseport;
+            listen 8443 quic reuseport;
+            listen [::]:8443 quic reuseport;
+
+            http2 on;
+            ssl_certificate       $test_root/cert/xray.crt;
+            ssl_certificate_key   $test_root/cert/xray.key;
+            ssl_protocols         TLSv1.3;
+            server_name           example.com;
+            root $test_root/html;
+
+            location /grpc {
+                grpc_pass grpc://xray-grpc-server;
+                grpc_connect_timeout 60s;
+                grpc_read_timeout 720m;
+                grpc_send_timeout 720m;
+                grpc_set_header X-Real-IP \$remote_addr;
+                grpc_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+            }
+
+            location /ws {
+                proxy_pass http://xray-ws-server;
+                proxy_http_version 1.1;
+                proxy_set_header Upgrade \$http_upgrade;
+                proxy_set_header Connection "upgrade";
+                proxy_set_header Host \$http_host;
+            }
+
+            location /xhttp {
+                grpc_pass grpc://xray-xhttp-server;
+                grpc_connect_timeout 60s;
+                grpc_read_timeout 720m;
+                grpc_send_timeout 720m;
+                grpc_set_header X-Real-IP \$remote_addr;
+                grpc_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+                grpc_set_header Early-Data \$ssl_early_data;
+            }
+        }
+        EOF
+
+        cat > "$test_root/tls-nginx.conf" <<EOF
+        user nobody $nginx_group;
+        worker_processes auto;
+        events {
+            worker_connections 4096;
+        }
+        http {
+            server_tokens off;
+            include $test_root/conf/nginx/*.conf;
+        }
+        EOF
+
+        cat > "$test_root/reality-nginx.conf" <<EOF
+        user nobody $nginx_group;
+        worker_processes auto;
+        events {
+            worker_connections 4096;
+        }
+        stream {
+            map \$ssl_preread_protocol \$is_valid_protocol {
+                TLSv1.3 1;
+                default 0;
+            }
+
+            map \$ssl_preread_server_name \$sni_upstream {
+                include $test_root/conf/nginx/*.serverNames;
+                default deny;
+            }
+
+            map "\$sni_upstream:\$is_valid_protocol" \$final_upstream {
+                ~^reality:1\$ reality;
+                default deny;
+            }
+
+            upstream reality {
+                include $test_root/conf/nginx/*.realityServers;
+            }
+
+            upstream deny {
+                server 127.0.0.1:9403;
+            }
+
+            server {
+                listen 9444 reuseport so_keepalive=on backlog=65535;
+                proxy_pass \$final_upstream;
+                ssl_preread on;
+                proxy_connect_timeout 5s;
+                proxy_timeout 300s;
+            }
+
+            server {
+                listen 127.0.0.1:9403 reuseport;
+                ssl_reject_handshake on;
+                return 444;
+                access_log off;
+                error_log /dev/null;
+            }
+        }
+        EOF
+
+        sudo "$nginx_binary" -t -p "$test_root/" -c "$test_root/tls-nginx.conf"
+        sudo "$nginx_binary" -t -p "$test_root/" -c "$test_root/reality-nginx.conf"
+
     - name: Create package
       run: |
         package_file="xray-nginx-custom-${{ matrix.arch }}.tar.gz"
@@ -403,8 +578,8 @@ jobs:
           --arg sha256 "$package_sha" \
           --arg size_bytes "$package_size" \
           --arg binary_sha256 "$binary_sha" \
-          --arg link_mode "full-static" \
-          --arg static_report "build-static-report-${{ matrix.arch }}.txt" \
+          --arg link_mode "mostly-static" \
+          --arg build_report "build-report-${{ matrix.arch }}.txt" \
           --arg nginx_build_version "$NGINX_BUILD_VERSION" \
           --arg nginx_version "$NGINX_VERSION" \
           --arg openssl_version "$OPENSSL_VERSION" \
@@ -414,6 +589,7 @@ jobs:
           --arg build_time "$BUILD_TIME" \
           --arg build_image "$BUILD_IMAGE" \
           --arg runner_os "${{ matrix.os }}" \
+          --arg glibc_version "$GLIBC_VERSION" \
           '{
             arch: $arch,
             filename: $filename,
@@ -421,14 +597,15 @@ jobs:
             size_bytes: ($size_bytes | tonumber),
             binary_sha256: $binary_sha256,
             link_mode: $link_mode,
-            static_report: $static_report,
+            build_report: $build_report,
             versions: {
               nginx_build: $nginx_build_version,
               nginx: $nginx_version,
               openssl: $openssl_version,
               jemalloc: $jemalloc_version,
               pcre2: $pcre2_version,
-              zlib: $zlib_version
+              zlib: $zlib_version,
+              glibc: $glibc_version
             },
             build: {
               time: $build_time,
@@ -445,7 +622,7 @@ jobs:
           xray-nginx-custom-${{ matrix.arch }}.tar.gz
           xray-nginx-custom-${{ matrix.arch }}.tar.gz.sha256
           build-metadata-${{ matrix.arch }}.json
-          build-static-report-${{ matrix.arch }}.txt
+          build-report-${{ matrix.arch }}.txt
 
   upload-release-assets:
     needs: [check-versions, build]
@@ -530,9 +707,9 @@ jobs:
       if: steps.check_tag.outputs.tag_exists != 'true'
       uses: ncipollo/release-action@main
       with:
-        artifacts: "artifacts/xray-nginx-custom-*.tar.gz,artifacts/xray-nginx-custom-*.tar.gz.sha256,artifacts/build-metadata-*.json,artifacts/build-static-report-*.txt,artifacts/release-manifest.json,artifacts/SHA256SUMS"
+        artifacts: "artifacts/xray-nginx-custom-*.tar.gz,artifacts/xray-nginx-custom-*.tar.gz.sha256,artifacts/build-metadata-*.json,artifacts/build-report-*.txt,artifacts/release-manifest.json,artifacts/SHA256SUMS"
         tag: "${{ env.TAG_NAME }}"
-        body: "Nginx ${{ env.NGINX_VERSION }} custom full-static build for Xray_bash_onekey.\n\nOpenSSL Version: ${{ env.OPENSSL_VERSION }}\nJemalloc Version: ${{ env.JEMALLOC_VERSION }}\nPCRE2 Version: ${{ env.PCRE_VERSION }}\nzlib Version: ${{ env.ZLIB_VERSION }}\n\nThe release includes release-manifest.json, per-asset SHA256 files, SHA256SUMS, and static-link verification reports."
+        body: "Nginx ${{ env.NGINX_VERSION }} mostly-static build for Xray_bash_onekey.\n\nOpenSSL/PCRE2/zlib/jemalloc are statically linked. Only glibc is dynamically linked.\n\nBuilt on: Ubuntu 22.04 (glibc 2.35)\nCompatibility: Requires glibc >= 2.35 (Debian 12+, Ubuntu 24.04+, CentOS Stream 10+)\n\nOpenSSL Version: ${{ env.OPENSSL_VERSION }}\nJemalloc Version: ${{ env.JEMALLOC_VERSION }}\nPCRE2 Version: ${{ env.PCRE_VERSION }}\nzlib Version: ${{ env.ZLIB_VERSION }}\n\nThe release includes release-manifest.json, per-asset SHA256 files, SHA256SUMS, and build verification reports."
         draft: false
         prerelease: false
         allowUpdates: true
@@ -562,8 +739,8 @@ jobs:
         jq --arg nginx_build_version "${{ needs.check-versions.outputs.release_version }}" \
           '{nginx_online_version, openssl_online_version, jemalloc_online_version, pcre2_online_version, zlib_online_version, nginx_build_online_version: $nginx_build_version}' \
           "$current_versions_file" > .github/previous_versions.json
-        git config --local user.email "action@github.com"
-        git config --local user.name "GitHub Action"
+        git config -l user.email 2>/dev/null | grep -q . || git config --local user.email "action@github.com"
+        git config -l user.name 2>/dev/null | grep -q . || git config --local user.name "GitHub Action"
         git add .github/previous_versions.json
         git commit -m "Update previous_versions.json with released versions" || exit 0
         git push origin main

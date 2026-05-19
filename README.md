@@ -1,10 +1,20 @@
-# 自动编译全静态 Nginx for Xray_bash_onekey
+# 自动编译 Nginx for Xray_bash_onekey
 
 ## 简介
 
-本仓库为 [hello-yunshu/Xray_bash_onekey](https://github.com/hello-yunshu/Xray_bash_onekey) 自动构建可直接分发的 Nginx 二进制包。构建目标是全静态链接 Nginx，并将 OpenSSL、Jemalloc、PCRE2、zlib 等依赖一并编入发布产物，减少目标服务器上的运行时依赖。
+本仓库为 [hello-yunshu/Xray_bash_onekey](https://github.com/hello-yunshu/Xray_bash_onekey) 自动构建可直接分发的 Nginx 二进制包。采用 mostly-static 构建方式：OpenSSL、Jemalloc、PCRE2、zlib 等依赖全部静态编入，仅 glibc 动态链接。
 
-如果 CI 无法生成全静态二进制，发布流程会直接失败，不再把动态链接产物标记为全静态。
+### 为什么不全静态链接 glibc
+
+glibc 的 NSS（Name Service Switch）机制会在运行时通过 `dlopen()` 动态加载 `libnss_files.so.2` 等模块，导致静态链接 glibc 的二进制在跨版本系统上崩溃（ABI 不兼容）。仅动态链接 glibc 可以彻底避免此问题，同时保留 NSS 的完整功能（`getpwnam`、`getaddrinfo` 等）。
+
+## 兼容性
+
+| 项目 | 说明 |
+|------|------|
+| 编译环境 | Ubuntu 22.04 (glibc 2.35) |
+| 最低要求 | glibc >= 2.35 |
+| 支持系统 | Debian 12+、Ubuntu 24.04+、CentOS Stream 10+ |
 
 ## 发布产物
 
@@ -14,7 +24,8 @@
 - `xray-nginx-custom-arm.tar.gz`：aarch64/arm64 服务器使用。
 - `release-manifest.json`：主项目消费的发布清单，包含架构、文件名、版本和 SHA256。
 - `SHA256SUMS` 与单独的 `.sha256` 文件：用于校验下载文件。
-- `build-static-report-*.txt`：记录 `file`、`ldd`、`objdump`、`nginx -V` 的静态链接验证结果。
+- `build-report-*.txt`：记录 `file`、`ldd`、`objdump`、`nginx -V` 的链接验证结果。
+- `build-metadata-*.json`：包含架构、版本、glibc 版本、链接模式等构建元数据。
 
 ## 手动安装
 
@@ -50,4 +61,4 @@ sudo /usr/local/nginx/sbin/nginx -t
 
 GitHub Actions 每 2 小时检查一次版本。只有 Nginx 或核心构建依赖版本变化时才会构建并发布；发布成功后才会更新 `.github/previous_versions.json`，避免定时检查产生无意义提交。
 
-`.github/previous_versions.json` 只是本仓库判断“上次成功构建使用了哪些源码/依赖版本”的内部快照。主项目不会直接读取这个文件；主项目读取的是 `Xray_bash_onekey_api` 仓库里的 `xray_shell_versions.json`。API 仓库会根据本仓库最新 Release tag 更新 `nginx_build_online_version`，主项目再用这个版本号下载对应 Release。
+`.github/previous_versions.json` 只是本仓库判断"上次成功构建使用了哪些源码/依赖版本"的内部快照。主项目不会直接读取这个文件；主项目读取的是 `Xray_bash_onekey_api` 仓库里的 `xray_shell_versions.json`。API 仓库会根据本仓库最新 Release tag 更新 `nginx_build_online_version`，主项目再用这个版本号下载对应 Release。
