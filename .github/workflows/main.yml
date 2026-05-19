@@ -131,7 +131,7 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get upgrade -y
-        sudo apt-get install -y build-essential wget curl tar gzip bzip2 xz-utils libtool autoconf automake pkg-config libcrypt-dev file binutils
+        sudo apt-get install -y build-essential wget curl tar gzip bzip2 xz-utils libtool autoconf automake pkg-config libcrypt-dev file binutils openssl
 
     - name: Cache OpenSSL
       id: cache-openssl
@@ -380,6 +380,154 @@ jobs:
           echo "Nginx failed to stop!"
           exit 1
         fi
+
+    - name: Test Xray_bash_onekey Nginx configs
+      run: |
+        set -x
+        nginx_binary="/usr/local/nginx/sbin/nginx"
+        test_root="$(mktemp -d)"
+        nginx_group="$(id -gn nobody 2>/dev/null || echo nogroup)"
+        mkdir -p "$test_root/conf/nginx" "$test_root/cert" "$test_root/html" "$test_root/logs"
+        openssl req -x509 -nodes -newkey rsa:2048 -days 1 \
+          -subj "/CN=example.com" \
+          -keyout "$test_root/cert/xray.key" \
+          -out "$test_root/cert/xray.crt"
+
+        cat > "$test_root/conf/nginx/127.0.0.1.wsServers" <<EOF
+        server 127.0.0.1:20001 weight=50 max_fails=2 fail_timeout=10;
+        EOF
+        cat > "$test_root/conf/nginx/127.0.0.1.grpcServers" <<EOF
+        server 127.0.0.1:30001 weight=50 max_fails=2 fail_timeout=10;
+        EOF
+        cat > "$test_root/conf/nginx/127.0.0.1.xhttpServers" <<EOF
+        server 127.0.0.1:40001 weight=50 max_fails=2 fail_timeout=10;
+        EOF
+        cat > "$test_root/conf/nginx/example.com.serverNames" <<EOF
+        example.com reality;
+        EOF
+        cat > "$test_root/conf/nginx/127.0.0.1.realityServers" <<EOF
+        server 127.0.0.1:9443 weight=50 max_fails=2 fail_timeout=10;
+        EOF
+
+        cat > "$test_root/conf/nginx/02-xray-server.conf" <<EOF
+        upstream xray-ws-server {
+            include $test_root/conf/nginx/*.wsServers;
+        }
+
+        upstream xray-grpc-server {
+            include $test_root/conf/nginx/*.grpcServers;
+        }
+
+        upstream xray-xhttp-server {
+            include $test_root/conf/nginx/*.xhttpServers;
+        }
+        EOF
+
+        cat > "$test_root/conf/nginx/00-xray.conf" <<EOF
+        server {
+            listen 8443 ssl reuseport;
+            listen [::]:8443 ssl reuseport;
+            listen 8443 quic reuseport;
+            listen [::]:8443 quic reuseport;
+
+            http2 on;
+            ssl_certificate       $test_root/cert/xray.crt;
+            ssl_certificate_key   $test_root/cert/xray.key;
+            ssl_protocols         TLSv1.3;
+            server_name           example.com;
+            root $test_root/html;
+
+            location /grpc {
+                grpc_pass grpc://xray-grpc-server;
+                grpc_connect_timeout 60s;
+                grpc_read_timeout 720m;
+                grpc_send_timeout 720m;
+                grpc_set_header X-Real-IP \$remote_addr;
+                grpc_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+            }
+
+            location /ws {
+                proxy_pass http://xray-ws-server;
+                proxy_http_version 1.1;
+                proxy_set_header Upgrade \$http_upgrade;
+                proxy_set_header Connection "upgrade";
+                proxy_set_header Host \$http_host;
+            }
+
+            location /xhttp {
+                grpc_pass grpc://xray-xhttp-server;
+                grpc_connect_timeout 60s;
+                grpc_read_timeout 720m;
+                grpc_send_timeout 720m;
+                grpc_set_header X-Real-IP \$remote_addr;
+                grpc_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+                grpc_set_header Early-Data \$ssl_early_data;
+            }
+        }
+        EOF
+
+        cat > "$test_root/tls-nginx.conf" <<EOF
+        user nobody $nginx_group;
+        worker_processes auto;
+        events {
+            worker_connections 4096;
+        }
+        http {
+            server_tokens off;
+            include $test_root/conf/nginx/*.conf;
+        }
+        EOF
+
+        cat > "$test_root/reality-nginx.conf" <<EOF
+        user nobody $nginx_group;
+        worker_processes auto;
+        events {
+            worker_connections 4096;
+        }
+        stream {
+            map \$ssl_preread_protocol \$is_valid_protocol {
+                TLSv1.3 1;
+                default 0;
+            }
+
+            map \$ssl_preread_server_name \$sni_upstream {
+                include $test_root/conf/nginx/*.serverNames;
+                default deny;
+            }
+
+            map "\$sni_upstream:\$is_valid_protocol" \$final_upstream {
+                ~^reality:1\$ reality;
+                default deny;
+            }
+
+            upstream reality {
+                include $test_root/conf/nginx/*.realityServers;
+            }
+
+            upstream deny {
+                server 127.0.0.1:9403;
+            }
+
+            server {
+                listen 9444 reuseport so_keepalive=on backlog=65535;
+                proxy_pass \$final_upstream;
+                ssl_preread on;
+                proxy_connect_timeout 5s;
+                proxy_timeout 300s;
+            }
+
+            server {
+                listen 127.0.0.1:9403 reuseport;
+                ssl_reject_handshake on;
+                return 444;
+                access_log off;
+                error_log /dev/null;
+            }
+        }
+        EOF
+
+        sudo "$nginx_binary" -t -p "$test_root/" -c "$test_root/tls-nginx.conf"
+        sudo "$nginx_binary" -t -p "$test_root/" -c "$test_root/reality-nginx.conf"
 
     - name: Create package
       run: |
