@@ -303,8 +303,15 @@ jobs:
         MUSL_INC_DIR=$(find /usr/include -maxdepth 1 -type d -name '*-linux-musl' 2>/dev/null | head -1)
         if [ -n "$MUSL_INC_DIR" ]; then
           sudo ln -sf /usr/include/linux "$MUSL_INC_DIR/linux"
-          sudo ln -sf /usr/include/asm "$MUSL_INC_DIR/asm"
           sudo ln -sf /usr/include/asm-generic "$MUSL_INC_DIR/asm-generic"
+          ARCH_ASM_DIR=$(find /usr/include -maxdepth 2 -path '*/asm' -type d 2>/dev/null | grep -v linux-musl | head -1)
+          if [ -n "$ARCH_ASM_DIR" ]; then
+            sudo ln -sf "$ARCH_ASM_DIR" "$MUSL_INC_DIR/asm"
+            echo "Linked asm from $ARCH_ASM_DIR"
+          else
+            echo "ERROR: architecture-specific asm directory not found"
+            exit 1
+          fi
           echo "Linked kernel headers in $MUSL_INC_DIR"
           ls -la "$MUSL_INC_DIR/linux" "$MUSL_INC_DIR/asm" "$MUSL_INC_DIR/asm-generic"
         else
