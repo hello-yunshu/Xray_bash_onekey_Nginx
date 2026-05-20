@@ -268,12 +268,29 @@ jobs:
           exit 1
         fi
 
+    - name: Verify musl static link flags
+      run: |
+        set -x
+        static_ld_args=("-static" "-L/opt/jemalloc/lib" "-L/opt/zlib/lib" "-L/opt/pcre2/lib" "-Wl,--start-group" "-Wl,--whole-archive" "-ljemalloc" "-Wl,--no-whole-archive" "-lz" "-lpcre2-8" "-lpthread" "-ldl" "-lm" "-Wl,--end-group")
+        printf '%s\n' \
+          '#include <stdlib.h>' \
+          'int main(void) { void *p = malloc(16); free(p); return 0; }' \
+          > /tmp/musl-static-link-test.c
+        musl-gcc -O2 /tmp/musl-static-link-test.c "${static_ld_args[@]}" -o /tmp/musl-static-link-test
+        file /tmp/musl-static-link-test
+        needed_output=$(objdump -p /tmp/musl-static-link-test | grep NEEDED || true)
+        if [ -n "$needed_output" ]; then
+          echo "musl static link test failed: dynamic NEEDED entries found."
+          echo "$needed_output"
+          exit 1
+        fi
+
     - name: Build Nginx as a musl static binary
       run: |
         cd nginx-${{ env.NGINX_VERSION }}
         export CC=musl-gcc
         static_cc_opt="-O3 -fPIC -static -static-libgcc -I/opt/jemalloc/include -I/opt/zlib/include -I/opt/pcre2/include"
-        static_ld_opt="-static -L/opt/jemalloc/lib -L/opt/zlib/lib -L/opt/pcre2/lib -Wl,--start-group -Wl,--whole-archive -ljemalloc -Wl,--no-whole-archive -lz -lpcre2-8 -lcrypt -lpthread -ldl -lm -Wl,--end-group"
+        static_ld_opt="-static -L/opt/jemalloc/lib -L/opt/zlib/lib -L/opt/pcre2/lib -Wl,--start-group -Wl,--whole-archive -ljemalloc -Wl,--no-whole-archive -lz -lpcre2-8 -lpthread -ldl -lm -Wl,--end-group"
 
         ./configure --prefix=/usr/local/nginx \
           --user=nobody \
