@@ -148,7 +148,7 @@ jobs:
       with:
         path: |
           ./openssl-${{ env.OPENSSL_VERSION }}/
-        key: ${{ runner.os }}-openssl-source-musl-static-v3-${{ matrix.arch }}-${{ env.OPENSSL_VERSION }}
+        key: ${{ runner.os }}-openssl-source-musl-static-v4-${{ matrix.arch }}-${{ env.OPENSSL_VERSION }}
 
     - name: Download OpenSSL
       if: steps.cache-openssl.outputs.cache-hit != 'true'
@@ -170,7 +170,7 @@ jobs:
       with:
         path: |
           ./jemalloc-${{ env.JEMALLOC_VERSION }}/
-        key: ${{ runner.os }}-jemalloc-source-musl-static-v3-${{ matrix.arch }}-${{ env.JEMALLOC_VERSION }}
+        key: ${{ runner.os }}-jemalloc-source-musl-static-v4-${{ matrix.arch }}-${{ env.JEMALLOC_VERSION }}
 
     - name: Download and extract Jemalloc
       if: steps.cache-jemalloc.outputs.cache-hit != 'true'
@@ -201,7 +201,7 @@ jobs:
       with:
         path: |
           ./pcre2-${{ env.PCRE_VERSION }}/
-        key: ${{ runner.os }}-pcre2-source-musl-static-v3-${{ matrix.arch }}-${{ env.PCRE_VERSION }}
+        key: ${{ runner.os }}-pcre2-source-musl-static-v4-${{ matrix.arch }}-${{ env.PCRE_VERSION }}
 
     - name: Download PCRE2
       if: steps.cache-pcre2.outputs.cache-hit != 'true'
@@ -232,7 +232,7 @@ jobs:
       with:
         path: |
           ./zlib-${{ env.ZLIB_VERSION }}/
-        key: ${{ runner.os }}-zlib-source-musl-static-v3-${{ matrix.arch }}-${{ env.ZLIB_VERSION }}
+        key: ${{ runner.os }}-zlib-source-musl-static-v4-${{ matrix.arch }}-${{ env.ZLIB_VERSION }}
 
     - name: Download zlib
       if: steps.cache-zlib.outputs.cache-hit != 'true'
@@ -265,7 +265,7 @@ jobs:
       with:
         path: |
           ./nginx-${{ env.NGINX_VERSION }}/
-        key: ${{ runner.os }}-nginx-source-musl-static-v3-${{ matrix.arch }}-${{ env.NGINX_VERSION }}
+        key: ${{ runner.os }}-nginx-source-musl-static-v4-${{ matrix.arch }}-${{ env.NGINX_VERSION }}
 
     - name: Download Nginx
       if: steps.cache-nginx.outputs.cache-hit != 'true'
