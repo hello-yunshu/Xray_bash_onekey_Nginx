@@ -131,7 +131,8 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get upgrade -y
-        sudo apt-get install -y build-essential wget curl tar gzip bzip2 xz-utils libtool autoconf automake pkg-config libcrypt-dev file binutils openssl
+        sudo apt-get install -y build-essential wget curl tar gzip bzip2 xz-utils libtool autoconf automake pkg-config file binutils openssl musl-tools
+        musl-gcc --version
 
     - name: Cache OpenSSL
       id: cache-openssl
@@ -139,7 +140,7 @@ jobs:
       with:
         path: |
           ./openssl-${{ env.OPENSSL_VERSION }}/
-        key: ${{ runner.os }}-openssl-source-static-v2-${{ matrix.arch }}-${{ env.OPENSSL_VERSION }}
+        key: ${{ runner.os }}-openssl-source-musl-static-v3-${{ matrix.arch }}-${{ env.OPENSSL_VERSION }}
 
     - name: Download OpenSSL
       if: steps.cache-openssl.outputs.cache-hit != 'true'
@@ -161,7 +162,7 @@ jobs:
       with:
         path: |
           ./jemalloc-${{ env.JEMALLOC_VERSION }}/
-        key: ${{ runner.os }}-jemalloc-source-static-v2-${{ matrix.arch }}-${{ env.JEMALLOC_VERSION }}
+        key: ${{ runner.os }}-jemalloc-source-musl-static-v3-${{ matrix.arch }}-${{ env.JEMALLOC_VERSION }}
 
     - name: Download and extract Jemalloc
       if: steps.cache-jemalloc.outputs.cache-hit != 'true'
@@ -172,7 +173,7 @@ jobs:
     - name: Build and install Jemalloc
       run: |
         cd jemalloc-${{ env.JEMALLOC_VERSION }}
-        ./configure --enable-static --disable-shared --disable-cxx --prefix=/opt/jemalloc CFLAGS="-O3 -fPIC"
+        CC=musl-gcc ./configure --enable-static --disable-shared --disable-cxx --prefix=/opt/jemalloc CFLAGS="-O3 -fPIC" LDFLAGS="-static"
         make -j$(($(nproc) + 1))
         sudo make install
 
@@ -190,7 +191,7 @@ jobs:
       with:
         path: |
           ./pcre2-${{ env.PCRE_VERSION }}/
-        key: ${{ runner.os }}-pcre2-source-static-v2-${{ matrix.arch }}-${{ env.PCRE_VERSION }}
+        key: ${{ runner.os }}-pcre2-source-musl-static-v3-${{ matrix.arch }}-${{ env.PCRE_VERSION }}
 
     - name: Download PCRE2
       if: steps.cache-pcre2.outputs.cache-hit != 'true'
@@ -201,7 +202,7 @@ jobs:
     - name: Build and install PCRE2
       run: |
         cd pcre2-${{ env.PCRE_VERSION }}
-        ./configure --prefix=/opt/pcre2 --enable-static --disable-shared --enable-jit CFLAGS="-O3 -fPIC"
+        CC=musl-gcc ./configure --prefix=/opt/pcre2 --enable-static --disable-shared --enable-jit CFLAGS="-O3 -fPIC" LDFLAGS="-static"
         make -j$(($(nproc) + 1))
         sudo make install
 
@@ -219,7 +220,7 @@ jobs:
       with:
         path: |
           ./zlib-${{ env.ZLIB_VERSION }}/
-        key: ${{ runner.os }}-zlib-source-static-v2-${{ matrix.arch }}-${{ env.ZLIB_VERSION }}
+        key: ${{ runner.os }}-zlib-source-musl-static-v3-${{ matrix.arch }}-${{ env.ZLIB_VERSION }}
 
     - name: Download zlib
       if: steps.cache-zlib.outputs.cache-hit != 'true'
@@ -230,7 +231,9 @@ jobs:
     - name: Build and install zlib
       run: |
         cd zlib-${{ env.ZLIB_VERSION }}
+        export CC=musl-gcc
         export CFLAGS="-O3 -fPIC"
+        export LDFLAGS="-static"
         ./configure --prefix=/opt/zlib --static
         make -j$(($(nproc) + 1))
         sudo make install
@@ -249,7 +252,7 @@ jobs:
       with:
         path: |
           ./nginx-${{ env.NGINX_VERSION }}/
-        key: ${{ runner.os }}-nginx-source-static-v2-${{ matrix.arch }}-${{ env.NGINX_VERSION }}
+        key: ${{ runner.os }}-nginx-source-musl-static-v3-${{ matrix.arch }}-${{ env.NGINX_VERSION }}
 
     - name: Download Nginx
       if: steps.cache-nginx.outputs.cache-hit != 'true'
@@ -265,9 +268,10 @@ jobs:
           exit 1
         fi
 
-    - name: Build Nginx as a fully static binary
+    - name: Build Nginx as a musl static binary
       run: |
         cd nginx-${{ env.NGINX_VERSION }}
+        export CC=musl-gcc
         static_cc_opt="-O3 -fPIC -static -static-libgcc -I/opt/jemalloc/include -I/opt/zlib/include -I/opt/pcre2/include"
         static_ld_opt="-static -L/opt/jemalloc/lib -L/opt/zlib/lib -L/opt/pcre2/lib -Wl,--start-group -Wl,--whole-archive -ljemalloc -Wl,--no-whole-archive -lz -lpcre2-8 -lcrypt -lpthread -ldl -lm -Wl,--end-group"
 
@@ -288,7 +292,7 @@ jobs:
           --with-http_v2_module \
           --with-http_v3_module \
           --with-pcre-jit \
-          --with-cc=gcc \
+          --with-cc=musl-gcc \
           --with-cc-opt="$static_cc_opt" \
           --with-ld-opt="$static_ld_opt" \
           --with-openssl="$(pwd)/../openssl-${{ env.OPENSSL_VERSION }}" \
@@ -305,7 +309,7 @@ jobs:
           exit 1
         fi
 
-    - name: Verify static Nginx binary
+    - name: Verify musl static Nginx binary
       run: |
         set -x
         nginx_binary="/usr/local/nginx/sbin/nginx"
@@ -314,6 +318,7 @@ jobs:
         file_output=$(file "$nginx_binary")
         needed_output=$(objdump -p "$nginx_binary" | grep NEEDED || true)
         ldd_output=$(ldd "$nginx_binary" 2>&1 || true)
+        glibc_nss_output=$(strings -a "$nginx_binary" | grep -E 'libnss_|/etc/nsswitch\.conf|libc\.so\.6|__nss_|nss_database|glibc-ld|glibc\.rtld' || true)
 
         {
           echo "Architecture: ${{ matrix.arch }}"
@@ -324,6 +329,9 @@ jobs:
           echo
           echo "objdump NEEDED entries:"
           echo "${needed_output:-none}"
+          echo
+          echo "glibc/NSS markers:"
+          echo "${glibc_nss_output:-none}"
           echo
           echo "nginx -V:"
           echo "$nginx_v_output"
@@ -336,6 +344,16 @@ jobs:
 
         if [ -n "$needed_output" ]; then
           echo "Nginx verification failed: dynamic NEEDED entries found."
+          exit 1
+        fi
+
+        if ! echo "$nginx_v_output" | grep -q -- "--with-cc=musl-gcc"; then
+          echo "Nginx verification failed: nginx -V does not show musl-gcc."
+          exit 1
+        fi
+
+        if [ -n "$glibc_nss_output" ]; then
+          echo "Nginx verification failed: glibc/NSS markers found in the static binary."
           exit 1
         fi
 
@@ -551,7 +569,7 @@ jobs:
           --arg sha256 "$package_sha" \
           --arg size_bytes "$package_size" \
           --arg binary_sha256 "$binary_sha" \
-          --arg link_mode "full-static" \
+          --arg link_mode "musl-static" \
           --arg static_report "build-static-report-${{ matrix.arch }}.txt" \
           --arg nginx_build_version "$NGINX_BUILD_VERSION" \
           --arg nginx_version "$NGINX_VERSION" \
@@ -680,7 +698,7 @@ jobs:
       with:
         artifacts: "artifacts/xray-nginx-custom-*.tar.gz,artifacts/xray-nginx-custom-*.tar.gz.sha256,artifacts/build-metadata-*.json,artifacts/build-static-report-*.txt,artifacts/release-manifest.json,artifacts/SHA256SUMS"
         tag: "${{ env.TAG_NAME }}"
-        body: "Nginx ${{ env.NGINX_VERSION }} custom full-static build for Xray_bash_onekey.\n\nOpenSSL Version: ${{ env.OPENSSL_VERSION }}\nJemalloc Version: ${{ env.JEMALLOC_VERSION }}\nPCRE2 Version: ${{ env.PCRE_VERSION }}\nzlib Version: ${{ env.ZLIB_VERSION }}\n\nThe release includes release-manifest.json, per-asset SHA256 files, SHA256SUMS, and static-link verification reports."
+        body: "Nginx ${{ env.NGINX_VERSION }} custom musl-static build for Xray_bash_onekey.\n\nOpenSSL Version: ${{ env.OPENSSL_VERSION }}\nJemalloc Version: ${{ env.JEMALLOC_VERSION }}\nPCRE2 Version: ${{ env.PCRE_VERSION }}\nzlib Version: ${{ env.ZLIB_VERSION }}\n\nThe release includes release-manifest.json, per-asset SHA256 files, SHA256SUMS, and musl static-link verification reports."
         draft: false
         prerelease: false
         allowUpdates: true

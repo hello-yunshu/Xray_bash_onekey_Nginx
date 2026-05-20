@@ -1,10 +1,10 @@
-# 自动编译全静态 Nginx for Xray_bash_onekey
+# 自动编译 musl 全静态 Nginx for Xray_bash_onekey
 
 ## 简介
 
-本仓库为 [hello-yunshu/Xray_bash_onekey](https://github.com/hello-yunshu/Xray_bash_onekey) 自动构建可直接分发的 Nginx 二进制包。构建目标是全静态链接 Nginx，并将 OpenSSL、Jemalloc、PCRE2、zlib 等依赖一并编入发布产物，减少目标服务器上的运行时依赖。
+本仓库为 [hello-yunshu/Xray_bash_onekey](https://github.com/hello-yunshu/Xray_bash_onekey) 自动构建可直接分发的 Nginx 二进制包。构建目标是 musl 全静态链接 Nginx，并将 OpenSSL、Jemalloc、PCRE2、zlib 等依赖一并编入发布产物，避免 glibc 静态链接在不同发行版 NSS/glibc 运行时路径上的兼容性风险。
 
-如果 CI 无法生成全静态二进制，发布流程会直接失败，不再把动态链接产物标记为全静态。
+如果 CI 无法生成 musl 全静态二进制，或产物中仍存在 glibc/NSS 相关标记，发布流程会直接失败，不再把有兼容性风险的产物发布为通用二进制。
 
 ## 发布产物
 
@@ -14,7 +14,7 @@
 - `xray-nginx-custom-arm.tar.gz`：aarch64/arm64 服务器使用。
 - `release-manifest.json`：主项目消费的发布清单，包含架构、文件名、版本和 SHA256。
 - `SHA256SUMS` 与单独的 `.sha256` 文件：用于校验下载文件。
-- `build-static-report-*.txt`：记录 `file`、`ldd`、`objdump`、`nginx -V` 的静态链接验证结果。
+- `build-static-report-*.txt`：记录 `file`、`ldd`、`objdump`、glibc/NSS 标记扫描、`nginx -V` 的静态链接验证结果。
 
 ## 手动安装
 
