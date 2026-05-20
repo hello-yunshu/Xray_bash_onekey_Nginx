@@ -8,9 +8,15 @@ on:
       - main
   workflow_dispatch:
 
+concurrency:
+  group: build-nginx-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   check-versions:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
     outputs:
       should_run_build: ${{ steps.compare_versions.outputs.should_run_build }}
@@ -101,7 +107,10 @@ jobs:
   build:
     needs: check-versions
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: ubuntu-22.04
@@ -130,8 +139,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get upgrade -y
-        sudo apt-get install -y build-essential wget curl tar gzip bzip2 xz-utils libtool autoconf automake pkg-config file binutils openssl musl-tools
+        sudo apt-get install -y build-essential wget curl tar gzip bzip2 xz-utils libtool autoconf automake pkg-config file binutils openssl musl-tools linux-libc-dev
         musl-gcc --version
 
     - name: Cache OpenSSL
@@ -285,6 +293,25 @@ jobs:
           exit 1
         fi
 
+    - name: Clean OpenSSL build artifacts
+      run: |
+        cd openssl-${{ env.OPENSSL_VERSION }}
+        make distclean 2>/dev/null || true
+
+    - name: Add Linux kernel headers for musl-gcc
+      run: |
+        MUSL_INC_DIR=$(find /usr/include -maxdepth 1 -type d -name '*-linux-musl' 2>/dev/null | head -1)
+        if [ -n "$MUSL_INC_DIR" ]; then
+          sudo ln -sf /usr/include/linux "$MUSL_INC_DIR/linux"
+          sudo ln -sf /usr/include/asm "$MUSL_INC_DIR/asm"
+          sudo ln -sf /usr/include/asm-generic "$MUSL_INC_DIR/asm-generic"
+          echo "Linked kernel headers in $MUSL_INC_DIR"
+          ls -la "$MUSL_INC_DIR/linux" "$MUSL_INC_DIR/asm" "$MUSL_INC_DIR/asm-generic"
+        else
+          echo "ERROR: musl include directory not found"
+          exit 1
+        fi
+
     - name: Build Nginx as a musl static binary
       run: |
         cd nginx-${{ env.NGINX_VERSION }}
@@ -313,7 +340,7 @@ jobs:
           --with-cc-opt="$static_cc_opt" \
           --with-ld-opt="$static_ld_opt" \
           --with-openssl="$(pwd)/../openssl-${{ env.OPENSSL_VERSION }}" \
-          --with-openssl-opt='no-shared no-dso no-hw no-engine no-tests'
+          --with-openssl-opt='no-shared no-dso no-engine no-tests no-legacy'
 
         make -j$(($(nproc) + 1))
         sudo make install
