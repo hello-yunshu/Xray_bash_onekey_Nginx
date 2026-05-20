@@ -181,7 +181,9 @@ jobs:
     - name: Build and install Jemalloc
       run: |
         cd jemalloc-${{ env.JEMALLOC_VERSION }}
-        CC=musl-gcc ./configure --enable-static --disable-shared --disable-cxx --prefix=/opt/jemalloc CFLAGS="-O3 -fPIC" LDFLAGS="-static"
+        ARM_CFLAGS=""
+        if [ "${{ matrix.arch }}" = "arm" ]; then ARM_CFLAGS="-mno-outline-atomics"; fi
+        CC=musl-gcc ./configure --enable-static --disable-shared --disable-cxx --prefix=/opt/jemalloc CFLAGS="-O3 -fPIC $ARM_CFLAGS" LDFLAGS="-static"
         make -j$(($(nproc) + 1))
         sudo make install
 
@@ -210,7 +212,9 @@ jobs:
     - name: Build and install PCRE2
       run: |
         cd pcre2-${{ env.PCRE_VERSION }}
-        CC=musl-gcc ./configure --prefix=/opt/pcre2 --enable-static --disable-shared --enable-jit CFLAGS="-O3 -fPIC" LDFLAGS="-static"
+        ARM_CFLAGS=""
+        if [ "${{ matrix.arch }}" = "arm" ]; then ARM_CFLAGS="-mno-outline-atomics"; fi
+        CC=musl-gcc ./configure --prefix=/opt/pcre2 --enable-static --disable-shared --enable-jit CFLAGS="-O3 -fPIC $ARM_CFLAGS" LDFLAGS="-static"
         make -j$(($(nproc) + 1))
         sudo make install
 
@@ -241,6 +245,7 @@ jobs:
         cd zlib-${{ env.ZLIB_VERSION }}
         export CC=musl-gcc
         export CFLAGS="-O3 -fPIC"
+        if [ "${{ matrix.arch }}" = "arm" ]; then export CFLAGS="$CFLAGS -mno-outline-atomics"; fi
         export LDFLAGS="-static"
         ./configure --prefix=/opt/zlib --static
         make -j$(($(nproc) + 1))
@@ -325,6 +330,12 @@ jobs:
         export CC=musl-gcc
         static_cc_opt="-O3 -fPIC -static -static-libgcc -I/opt/jemalloc/include -I/opt/zlib/include -I/opt/pcre2/include"
         static_ld_opt="-static -L/opt/jemalloc/lib -L/opt/zlib/lib -L/opt/pcre2/lib -Wl,--start-group -Wl,--whole-archive -ljemalloc -Wl,--no-whole-archive -lz -lpcre2-8 -lpthread -ldl -lm -Wl,--end-group"
+        openssl_opt="no-shared no-dso no-engine no-tests no-legacy"
+
+        if [ "${{ matrix.arch }}" = "arm" ]; then
+          static_cc_opt="$static_cc_opt -mno-outline-atomics"
+          openssl_opt="$openssl_opt -mno-outline-atomics"
+        fi
 
         ./configure --prefix=/usr/local/nginx \
           --user=nobody \
@@ -347,7 +358,7 @@ jobs:
           --with-cc-opt="$static_cc_opt" \
           --with-ld-opt="$static_ld_opt" \
           --with-openssl="$(pwd)/../openssl-${{ env.OPENSSL_VERSION }}" \
-          --with-openssl-opt='no-shared no-dso no-engine no-tests no-legacy'
+          --with-openssl-opt="$openssl_opt"
 
         make -j$(($(nproc) + 1))
         sudo make install
