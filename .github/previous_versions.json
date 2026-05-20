@@ -4,5 +4,5 @@
   "jemalloc_online_version": "5.3.1",
   "pcre2_online_version": "10.47",
   "zlib_online_version": "1.3.2",
-  "nginx_build_online_version": "2026.05.14.6420"
+  "nginx_build_online_version": "2026.05.20.6501"
 }
