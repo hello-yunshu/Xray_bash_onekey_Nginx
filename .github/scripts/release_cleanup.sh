@@ -45,6 +45,11 @@ parse_protected_versions() {
     echo "ERROR: tested_versions.json is not valid JSON" >&2
     return 1
   fi
+  if [ "$(printf '%s' "$xray_shell_json" | "$JQ_BIN" -r 'type')" != "object" ] ||
+     [ "$(printf '%s' "$tested_json" | "$JQ_BIN" -r 'type')" != "object" ]; then
+    echo "ERROR: API version payloads must be JSON objects" >&2
+    return 1
+  fi
 
   local online_version tested_version tested_cross_version
   online_version=$(printf '%s' "$xray_shell_json" | "$JQ_BIN" -r '.nginx_build_online_version // ""')
@@ -61,12 +66,27 @@ parse_protected_versions() {
     return 1
   fi
 
-  # Cross-check: if tested_versions.json has nginx_build, it must match
-  if [ -n "$tested_cross_version" ] && [ "$tested_cross_version" != "null" ]; then
-    if [ "$tested_cross_version" != "$tested_version" ]; then
-      echo "ERROR: tested version mismatch: xray_shell_versions=$tested_version tested_versions=$tested_cross_version" >&2
+  if [ -z "$tested_cross_version" ] || [ "$tested_cross_version" = "null" ]; then
+    echo "ERROR: tested_versions.json nginx_build is empty or null" >&2
+    return 1
+  fi
+
+  local version
+  for version in "$online_version" "$tested_version" "$tested_cross_version"; do
+    if ! printf '%s' "$version" | grep -qE '^[0-9]{4}\.[0-9]{2}\.[0-9]{2}(\.[0-9]+)?$'; then
+      echo "ERROR: invalid nginx build version format: $version" >&2
       return 1
     fi
+  done
+  if [ -n "$current_build_version" ] &&
+     ! printf '%s' "$current_build_version" | grep -qE '^[0-9]{4}\.[0-9]{2}\.[0-9]{2}(\.[0-9]+)?$'; then
+    echo "ERROR: invalid current build version format: $current_build_version" >&2
+    return 1
+  fi
+
+  if [ "$tested_cross_version" != "$tested_version" ]; then
+    echo "ERROR: tested version mismatch: xray_shell_versions=$tested_version tested_versions=$tested_cross_version" >&2
+    return 1
   fi
 
   # Build deduplicated protected list (raw versions, no v prefix)
@@ -153,20 +173,18 @@ compute_release_plan() {
   printf '%s' "$releases_json" | "$JQ_BIN" -c \
     --argjson protected "$protected_array" \
     --argjson keep "$keep_count" '
-    sort_by(.created_at) | reverse | to_entries | map(
-      .value + {
-        __index: .key,
-        __protected: ((.value.tag_name) as $tag | $protected | index($tag) != null)
-      }
-    ) | map(
-      if .__protected then
-        . + {reason: "protected"}
-      elif .__index < $keep then
-        . + {reason: "keep-recent"}
+    sort_by(.created_at) | reverse |
+    reduce .[] as $release (
+      {ordinary_kept: 0, plan: []};
+      if (($release.tag_name as $tag | $protected | index($tag)) != null) then
+        .plan += [$release + {reason: "protected"}]
+      elif .ordinary_kept < $keep then
+        .ordinary_kept += 1 |
+        .plan += [$release + {reason: "keep-recent"}]
       else
-        . + {reason: "delete-old"}
+        .plan += [$release + {reason: "delete-old"}]
       end
-    ) | map({id, tag_name, created_at, reason})
+    ) | .plan | map({id, tag_name, created_at, reason})
   '
 }
 
