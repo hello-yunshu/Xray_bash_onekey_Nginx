@@ -207,3 +207,66 @@ compute_releases_to_delete() {
   plan=$(compute_release_plan "$releases_json" "$protected_tags" "$keep_count") || return 1
   printf '%s' "$plan" | "$JQ_BIN" -c 'map(select(.reason == "delete-old"))'
 }
+
+# Validate HTTP status code returned by a DELETE request to the GitHub API.
+#
+# Args:
+#   $1: HTTP status code (3-digit string from curl -w "%{http_code}")
+#
+# Returns: 0 if the deletion is acceptable, 1 if fail-closed
+#
+# Acceptable codes:
+#   204 - successfully deleted
+#   404 - resource already gone (idempotent success)
+#
+# Fail-closed codes (must NOT be treated as success):
+#   401 - unauthorized (token issue)
+#   403 - forbidden (permissions / abuse)
+#   429 - rate limited
+#   5xx - server error
+#   000 - connection failure / no response
+#   anything else - unexpected
+validate_delete_response() {
+  local http_code="$1"
+  case "$http_code" in
+    204|404)
+      return 0
+      ;;
+    401)
+      echo "ERROR: DELETE failed with 401 Unauthorized" >&2
+      return 1
+      ;;
+    403)
+      echo "ERROR: DELETE failed with 403 Forbidden" >&2
+      return 1
+      ;;
+    429)
+      echo "ERROR: DELETE failed with 429 Too Many Requests" >&2
+      return 1
+      ;;
+    5[0-9][0-9])
+      echo "ERROR: DELETE failed with $http_code (server error)" >&2
+      return 1
+      ;;
+    *)
+      echo "ERROR: DELETE returned unexpected status code: $http_code" >&2
+      return 1
+      ;;
+  esac
+}
+
+# Validate HTTP status code returned by a GET request verifying that a
+# protected resource (tag or release) still exists after cleanup.
+#
+# Args:
+#   $1: HTTP status code (3-digit string from curl -w "%{http_code}")
+#
+# Returns: 0 if the resource exists (200), 1 otherwise (fail-closed)
+validate_protected_exists() {
+  local http_code="$1"
+  if [ "$http_code" = "200" ]; then
+    return 0
+  fi
+  echo "ERROR: protected resource verification failed (HTTP $http_code)" >&2
+  return 1
+}

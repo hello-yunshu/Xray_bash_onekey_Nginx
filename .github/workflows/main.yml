@@ -821,6 +821,9 @@ jobs:
 
     - name: Execute cleanup
       run: |
+        # Source the cleanup decision logic for validate_delete_response
+        source .github/scripts/release_cleanup.sh
+
         TO_DELETE=$(cat /tmp/to_delete.json)
         DELETE_COUNT=$(echo "$TO_DELETE" | jq 'length')
 
@@ -831,21 +834,44 @@ jobs:
 
         echo "Deleting $DELETE_COUNT releases..."
         echo "$TO_DELETE" | jq -c '.[]' > /tmp/releases_to_delete.ndjson
+        FAILED=0
         while read -r release; do
           RELEASE_ID=$(echo "$release" | jq -r '.id')
           TAG_NAME=$(echo "$release" | jq -r '.tag_name')
           echo "Deleting release ID=$RELEASE_ID tag=$TAG_NAME"
-          curl -fsS -X DELETE -H "Authorization: token ${{ github.token }}" \
-            "https://api.github.com/repos/${{ github.repository }}/releases/$RELEASE_ID"
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE \
+            -H "Authorization: token ${{ github.token }}" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/$RELEASE_ID")
+          if ! validate_delete_response "$HTTP_CODE"; then
+            echo "::error::Failed to delete release ID=$RELEASE_ID (HTTP $HTTP_CODE). Aborting cleanup."
+            FAILED=1
+            break
+          fi
           if [ -n "$TAG_NAME" ]; then
             echo "Deleting tag: $TAG_NAME"
-            curl -fsS -X DELETE -H "Authorization: token ${{ github.token }}" \
-              "https://api.github.com/repos/${{ github.repository }}/git/refs/tags/$TAG_NAME"
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE \
+              -H "Authorization: token ${{ github.token }}" \
+              "https://api.github.com/repos/${{ github.repository }}/git/refs/tags/$TAG_NAME")
+            if ! validate_delete_response "$HTTP_CODE"; then
+              echo "::error::Failed to delete tag $TAG_NAME (HTTP $HTTP_CODE). Aborting cleanup."
+              FAILED=1
+              break
+            fi
           fi
         done < /tmp/releases_to_delete.ndjson
 
+        if [ "$FAILED" -ne 0 ]; then
+          echo "::error::Cleanup failed; some releases/tags were NOT deleted successfully."
+          exit 1
+        fi
+
+        echo "Successfully deleted $DELETE_COUNT releases."
+
     - name: Verify protected releases and tags still exist
       run: |
+        # Source the cleanup decision logic for validate_protected_exists
+        source .github/scripts/release_cleanup.sh
+
         PROTECTED_TAGS=$(cat /tmp/protected_tags.txt)
         FAILED=0
         while read -r tag; do
@@ -856,13 +882,13 @@ jobs:
           RELEASE_HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
             -H "Authorization: token ${{ github.token }}" \
             "https://api.github.com/repos/${{ github.repository }}/releases/tags/$tag")
-          if [ "$TAG_HTTP_CODE" != "200" ]; then
+          if ! validate_protected_exists "$TAG_HTTP_CODE" >/dev/null 2>&1; then
             echo "::error::Protected tag $tag no longer exists (HTTP $TAG_HTTP_CODE)!"
             FAILED=1
           else
             echo "Verified protected tag $tag still exists."
           fi
-          if [ "$RELEASE_HTTP_CODE" != "200" ]; then
+          if ! validate_protected_exists "$RELEASE_HTTP_CODE" >/dev/null 2>&1; then
             echo "::error::Protected release $tag no longer exists (HTTP $RELEASE_HTTP_CODE)!"
             FAILED=1
           else
