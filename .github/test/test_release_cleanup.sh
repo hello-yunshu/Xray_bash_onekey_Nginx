@@ -247,6 +247,16 @@ OUTPUT=$(parse_protected_versions "$BAD_JSON_TRUNCED" "$FIXTURE_TESTED" "" 2>/de
 EXIT_CODE=$?
 assert_fail_closed "T12: truncated JSON" "$EXIT_CODE" "$OUTPUT"
 
+BAD_TESTED_MISSING='{"shell": "2.8.3"}'
+OUTPUT=$(parse_protected_versions "$FIXTURE_XRAY_SHELL" "$BAD_TESTED_MISSING" "" 2>/dev/null)
+EXIT_CODE=$?
+assert_fail_closed "T12b: tested cross-check field missing" "$EXIT_CODE" "$OUTPUT"
+
+BAD_JSON_FORMAT='{"nginx_build_online_version": "../../escape", "nginx_build_tested_version": "2025.12.23"}'
+OUTPUT=$(parse_protected_versions "$BAD_JSON_FORMAT" "$FIXTURE_TESTED" "" 2>/dev/null)
+EXIT_CODE=$?
+assert_fail_closed "T12c: invalid build version format" "$EXIT_CODE" "$OUTPUT"
+
 # ============================================================================
 # Tests for fetch_protected_versions (fail-closed behavior)
 # ============================================================================
@@ -290,7 +300,7 @@ TO_DELETE=$(compute_releases_to_delete "$RELEASES" "$PROTECTED" "5")
 EXIT_CODE=$?
 assert_eq "T16: tested newest - exit code" "0" "$EXIT_CODE"
 DELETE_COUNT=$(printf '%s' "$TO_DELETE" | jq 'length')
-assert_eq "T16: tested newest - delete count" "1" "$DELETE_COUNT"
+assert_eq "T16: tested newest - delete count" "0" "$DELETE_COUNT"
 assert_not_contains "T16: tested newest - tested not in delete list" "v2025.12.23" "$TO_DELETE"
 
 # Test 17: tested is 6th oldest (position 5, 0-indexed) - should be protected
@@ -315,9 +325,7 @@ EXIT_CODE=$?
 assert_eq "T17: tested 6th - exit code" "0" "$EXIT_CODE"
 assert_not_contains "T17: tested 6th - tested not deleted" "v2025.12.23" "$TO_DELETE"
 DELETE_COUNT=$(printf '%s' "$TO_DELETE" | jq 'length')
-assert_eq "T17: tested 6th - delete count" "2" "$DELETE_COUNT"
-assert_contains "T17: tested 6th - deletes old v2025.12.20" "v2025.12.20" "$TO_DELETE"
-assert_contains "T17: tested 6th - deletes old v2025.12.18" "v2025.12.18" "$TO_DELETE"
+assert_eq "T17: tested 6th - delete count" "0" "$DELETE_COUNT"
 
 # Test 18: tested is 10th oldest - should be protected
 # 12 releases, keep=5. Protected at indices 0,1 (current+online) and 9 (tested).
@@ -341,7 +349,7 @@ EXIT_CODE=$?
 assert_eq "T18: tested 10th - exit code" "0" "$EXIT_CODE"
 assert_not_contains "T18: tested 10th - tested not deleted" "v2025.12.23" "$TO_DELETE"
 DELETE_COUNT=$(printf '%s' "$TO_DELETE" | jq 'length')
-assert_eq "T18: tested 10th - delete count" "6" "$DELETE_COUNT"
+assert_eq "T18: tested 10th - delete count" "4" "$DELETE_COUNT"
 assert_contains "T18: tested 10th - deletes v2025.12.20" "v2025.12.20" "$TO_DELETE"
 assert_contains "T18: tested 10th - deletes v2025.12.18" "v2025.12.18" "$TO_DELETE"
 
@@ -377,7 +385,7 @@ EXIT_CODE=$?
 assert_eq "T19: tested 20th - exit code" "0" "$EXIT_CODE"
 assert_not_contains "T19: tested 20th - tested not deleted" "v2025.12.23" "$TO_DELETE"
 DELETE_COUNT=$(printf '%s' "$TO_DELETE" | jq 'length')
-assert_eq "T19: tested 20th - delete count" "16" "$DELETE_COUNT"
+assert_eq "T19: tested 20th - delete count" "14" "$DELETE_COUNT"
 
 # Test 20: Release count below threshold (3 < 5, delete none)
 RELEASES=$(make_releases "v2026.07.28.7000" "v2026.07.15.6961" "v2025.12.23")
@@ -433,8 +441,6 @@ PROTECTED="v2026.07.15.6961 v2025.12.23 v2026.07.28.7000"
 TO_DELETE=$(compute_releases_to_delete "$RELEASES" "$PROTECTED" "5")
 EXIT_CODE=$?
 assert_eq "T23: normal old versions - exit code" "0" "$EXIT_CODE"
-assert_contains "T23: deletes v2026.06.20.6600" "v2026.06.20.6600" "$TO_DELETE"
-assert_contains "T23: deletes v2025.12.20" "v2025.12.20" "$TO_DELETE"
 assert_contains "T23: deletes v2025.12.18" "v2025.12.18" "$TO_DELETE"
 
 # Test 24: online == tested, both protected, old versions deleted
@@ -455,7 +461,7 @@ EXIT_CODE=$?
 assert_eq "T24: online==tested - exit code" "0" "$EXIT_CODE"
 assert_not_contains "T24: tested not deleted" "v2025.12.23" "$TO_DELETE"
 DELETE_COUNT=$(printf '%s' "$TO_DELETE" | jq 'length')
-assert_eq "T24: online==tested - delete count" "3" "$DELETE_COUNT"
+assert_eq "T24: online==tested - delete count" "1" "$DELETE_COUNT"
 
 # Test 25: empty releases list (delete none)
 TO_DELETE=$(compute_releases_to_delete '[]' "v2025.12.23 v2026.07.15.6961" "5")
@@ -489,7 +495,8 @@ assert_contains "T27: deletes v2026.06.15.6500" "v2026.06.15.6500" "$TO_DELETE"
 
 # Test 28: compute_release_plan shows all reasons
 # 6 releases, keep=5. Protected at indices 0 (current), 1 (online), 3 (tested).
-# Protected: 3. Keep-recent: 2 (indices 2,4). Delete-old: 1 (index 5).
+# Protected builds do not consume the ordinary retention budget.
+# Protected: 3. Ordinary builds: 3, all retained. Delete-old: 0.
 RELEASES=$(make_releases \
   "v2026.07.28.7000" \
   "v2026.07.15.6961" \
@@ -505,8 +512,8 @@ PROTECTED_COUNT=$(printf '%s' "$PLAN" | jq '[.[] | select(.reason == "protected"
 KEEP_COUNT=$(printf '%s' "$PLAN" | jq '[.[] | select(.reason == "keep-recent")] | length')
 DELETE_COUNT=$(printf '%s' "$PLAN" | jq '[.[] | select(.reason == "delete-old")] | length')
 assert_eq "T28: plan - protected count" "3" "$PROTECTED_COUNT"
-assert_eq "T28: plan - keep-recent count" "2" "$KEEP_COUNT"
-assert_eq "T28: plan - delete-old count" "1" "$DELETE_COUNT"
+assert_eq "T28: plan - keep-recent count" "3" "$KEEP_COUNT"
+assert_eq "T28: plan - delete-old count" "0" "$DELETE_COUNT"
 
 # Test 29: all releases are protected (delete none)
 RELEASES=$(make_releases "v2026.07.28.7000" "v2026.07.15.6961" "v2025.12.23")

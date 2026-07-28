@@ -706,8 +706,7 @@ jobs:
 
     - name: Upload release assets
       if: steps.check_tag.outputs.tag_exists != 'true'
-      # P1-E: Pin third-party action to v1.16.0 instead of floating @main
-      uses: ncipollo/release-action@v1.16.0
+      uses: ncipollo/release-action@440c8c1cb0ed28b9f43e4d1d670870f059653174 # v1.16.0
       with:
         artifacts: "artifacts/xray-nginx-custom-*.tar.gz,artifacts/xray-nginx-custom-*.tar.gz.sha256,artifacts/build-metadata-*.json,artifacts/build-report-*.txt,artifacts/release-manifest.json,artifacts/SHA256SUMS"
         tag: "${{ env.TAG_NAME }}"
@@ -757,8 +756,7 @@ jobs:
       contents: write
     steps:
     - name: Checkout repository
-      # P1-E: Pin to v4 instead of @main to avoid floating-tag supply chain risk.
-      uses: actions/checkout@v4
+      uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
     - name: Fetch protected versions and compute cleanup plan
       run: |
@@ -784,7 +782,7 @@ jobs:
         printf '%s\n' $PROTECTED_TAGS | sed 's/^/  - /'
 
         # Fetch all releases from GitHub API
-        RELEASES=$(curl -s -H "Authorization: token ${{ github.token }}" \
+        RELEASES=$(curl -fsS -H "Authorization: token ${{ github.token }}" \
           "https://api.github.com/repos/${{ github.repository }}/releases?per_page=100")
 
         if ! echo "$RELEASES" | jq -e . >/dev/null 2>&1; then
@@ -837,29 +835,38 @@ jobs:
           RELEASE_ID=$(echo "$release" | jq -r '.id')
           TAG_NAME=$(echo "$release" | jq -r '.tag_name')
           echo "Deleting release ID=$RELEASE_ID tag=$TAG_NAME"
-          curl -s -X DELETE -H "Authorization: token ${{ github.token }}" \
+          curl -fsS -X DELETE -H "Authorization: token ${{ github.token }}" \
             "https://api.github.com/repos/${{ github.repository }}/releases/$RELEASE_ID"
           if [ -n "$TAG_NAME" ]; then
             echo "Deleting tag: $TAG_NAME"
-            curl -s -X DELETE -H "Authorization: token ${{ github.token }}" \
-              "https://api.github.com/repos/${{ github.repository }}/git/refs/tags/$TAG_NAME" || true
+            curl -fsS -X DELETE -H "Authorization: token ${{ github.token }}" \
+              "https://api.github.com/repos/${{ github.repository }}/git/refs/tags/$TAG_NAME"
           fi
         done < /tmp/releases_to_delete.ndjson
 
-    - name: Verify protected tags still exist
+    - name: Verify protected releases and tags still exist
       run: |
         PROTECTED_TAGS=$(cat /tmp/protected_tags.txt)
         FAILED=0
         while read -r tag; do
           [ -z "$tag" ] && continue
-          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+          TAG_HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
             -H "Authorization: token ${{ github.token }}" \
             "https://api.github.com/repos/${{ github.repository }}/git/ref/tags/$tag")
-          if [ "$HTTP_CODE" != "200" ]; then
-            echo "::error::Protected tag $tag no longer exists (HTTP $HTTP_CODE)!"
+          RELEASE_HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Authorization: token ${{ github.token }}" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/tags/$tag")
+          if [ "$TAG_HTTP_CODE" != "200" ]; then
+            echo "::error::Protected tag $tag no longer exists (HTTP $TAG_HTTP_CODE)!"
             FAILED=1
           else
             echo "Verified protected tag $tag still exists."
+          fi
+          if [ "$RELEASE_HTTP_CODE" != "200" ]; then
+            echo "::error::Protected release $tag no longer exists (HTTP $RELEASE_HTTP_CODE)!"
+            FAILED=1
+          else
+            echo "Verified protected release $tag still exists."
           fi
         done <<< "$PROTECTED_TAGS"
         if [ "$FAILED" -ne 0 ]; then
