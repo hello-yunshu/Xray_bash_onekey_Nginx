@@ -749,33 +749,118 @@ jobs:
         git push origin main
 
   cleanup-old-releases:
-    needs: upload-release-assets
+    needs: [check-versions, upload-release-assets]
     if: needs.upload-release-assets.outputs.release_created == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-    - name: Cleanup old releases
+    - name: Checkout repository
+      # P1-E: Pin to v4 instead of @main to avoid floating-tag supply chain risk.
+      uses: actions/checkout@v4
+
+    - name: Fetch protected versions and compute cleanup plan
       run: |
-        RELEASES=$(curl -s -H "Authorization: token ${{ github.token }}" "https://api.github.com/repos/${{ github.repository }}/releases?per_page=100")
-        RELEASE_IDS=$(echo "$RELEASES" | jq -r 'sort_by(.created_at) | reverse | .[].id')
-        TOTAL_RELEASES=$(echo "$RELEASE_IDS" | wc -l)
+        # Source the cleanup decision logic (P0-E: protect tested_version)
+        source .github/scripts/release_cleanup.sh
+
+        CURRENT_BUILD="${{ needs.check-versions.outputs.release_version }}"
+
+        # Fetch protected versions from API (fail-closed on any error)
+        if ! PROTECTED_TAGS=$(fetch_protected_versions "$CURRENT_BUILD" 2>&1); then
+          echo "::error::Failed to fetch protected versions from API. Fail-closed: no releases will be deleted."
+          echo "$PROTECTED_TAGS"
+          exit 1
+        fi
+
+        if [ -z "$PROTECTED_TAGS" ]; then
+          echo "::error::Protected tags list is empty. Fail-closed: no releases will be deleted."
+          exit 1
+        fi
+
+        echo "Protected tags (online + tested + current build):"
+        # shellcheck disable=SC2086 # intentional word splitting to print each tag on its own line
+        printf '%s\n' $PROTECTED_TAGS | sed 's/^/  - /'
+
+        # Fetch all releases from GitHub API
+        RELEASES=$(curl -s -H "Authorization: token ${{ github.token }}" \
+          "https://api.github.com/repos/${{ github.repository }}/releases?per_page=100")
+
+        if ! echo "$RELEASES" | jq -e . >/dev/null 2>&1; then
+          echo "::error::Failed to fetch releases from GitHub API. Fail-closed."
+          exit 1
+        fi
+
+        TOTAL_RELEASES=$(echo "$RELEASES" | jq 'length')
         echo "Total releases: $TOTAL_RELEASES"
 
         KEEP_COUNT=5
-        COUNT=0
 
-        echo "$RELEASE_IDS" | while read -r RELEASE_ID; do
-          COUNT=$((COUNT+1))
-          if [ $COUNT -gt $KEEP_COUNT ]; then
-            TAG_NAME=$(curl -s -H "Authorization: token ${{ github.token }}" "https://api.github.com/repos/${{ github.repository }}/releases/$RELEASE_ID" | jq -r '.tag_name // ""')
-            echo "Deleting release with ID: $RELEASE_ID (tag: $TAG_NAME)"
-            curl -s -X DELETE -H "Authorization: token ${{ github.token }}" "https://api.github.com/repos/${{ github.repository }}/releases/$RELEASE_ID"
-            if [ -n "$TAG_NAME" ]; then
-              echo "Deleting tag: $TAG_NAME"
-              curl -s -X DELETE -H "Authorization: token ${{ github.token }}" "https://api.github.com/repos/${{ github.repository }}/git/refs/tags/$TAG_NAME" || true
-            fi
-          else
-            echo "Keeping release with ID: $RELEASE_ID"
+        # Compute and display the full plan (kept + deleted with reasons)
+        PLAN=$(compute_release_plan "$RELEASES" "$PROTECTED_TAGS" "$KEEP_COUNT") || {
+          echo "::error::Failed to compute release plan. Fail-closed."
+          exit 1
+        }
+
+        echo ""
+        echo "=== Cleanup Plan ==="
+        echo "$PLAN" | jq -r '.[] | "  - id=\(.id) tag=\(.tag_name) reason=\(.reason)"'
+
+        # Compute releases to delete
+        TO_DELETE=$(compute_releases_to_delete "$RELEASES" "$PROTECTED_TAGS" "$KEEP_COUNT") || {
+          echo "::error::Failed to compute releases to delete. Fail-closed."
+          exit 1
+        }
+        DELETE_COUNT=$(echo "$TO_DELETE" | jq 'length')
+
+        echo ""
+        echo "Releases to delete: $DELETE_COUNT"
+
+        # Save state for next steps
+        printf '%s\n' "$PROTECTED_TAGS" > /tmp/protected_tags.txt
+        echo "$TO_DELETE" > /tmp/to_delete.json
+
+    - name: Execute cleanup
+      run: |
+        TO_DELETE=$(cat /tmp/to_delete.json)
+        DELETE_COUNT=$(echo "$TO_DELETE" | jq 'length')
+
+        if [ "$DELETE_COUNT" -eq 0 ]; then
+          echo "No releases to delete."
+          exit 0
+        fi
+
+        echo "Deleting $DELETE_COUNT releases..."
+        echo "$TO_DELETE" | jq -c '.[]' > /tmp/releases_to_delete.ndjson
+        while read -r release; do
+          RELEASE_ID=$(echo "$release" | jq -r '.id')
+          TAG_NAME=$(echo "$release" | jq -r '.tag_name')
+          echo "Deleting release ID=$RELEASE_ID tag=$TAG_NAME"
+          curl -s -X DELETE -H "Authorization: token ${{ github.token }}" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/$RELEASE_ID"
+          if [ -n "$TAG_NAME" ]; then
+            echo "Deleting tag: $TAG_NAME"
+            curl -s -X DELETE -H "Authorization: token ${{ github.token }}" \
+              "https://api.github.com/repos/${{ github.repository }}/git/refs/tags/$TAG_NAME" || true
           fi
-        done
+        done < /tmp/releases_to_delete.ndjson
+
+    - name: Verify protected tags still exist
+      run: |
+        PROTECTED_TAGS=$(cat /tmp/protected_tags.txt)
+        FAILED=0
+        while read -r tag; do
+          [ -z "$tag" ] && continue
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Authorization: token ${{ github.token }}" \
+            "https://api.github.com/repos/${{ github.repository }}/git/ref/tags/$tag")
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::error::Protected tag $tag no longer exists (HTTP $HTTP_CODE)!"
+            FAILED=1
+          else
+            echo "Verified protected tag $tag still exists."
+          fi
+        done <<< "$PROTECTED_TAGS"
+        if [ "$FAILED" -ne 0 ]; then
+          exit 1
+        fi
