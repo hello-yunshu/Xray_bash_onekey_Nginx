@@ -544,6 +544,108 @@ assert_not_contains "T30: current build not deleted" "v2026.07.28.7000" "$TO_DEL
 assert_not_contains "T30: tested not deleted" "v2025.12.23" "$TO_DELETE"
 
 # ============================================================================
+# Tests for validate_delete_response (DELETE HTTP status code handling)
+# ============================================================================
+
+echo ""
+echo "=== Testing validate_delete_response (DELETE HTTP codes) ==="
+echo ""
+
+# Test 31: 204 No Content (successful delete) - accepted
+validate_delete_response "204" >/dev/null 2>&1
+assert_eq "T31: 204 accepted - exit code" "0" "$?"
+
+# Test 32: 404 Not Found (already gone) - accepted (idempotent)
+validate_delete_response "404" >/dev/null 2>&1
+assert_eq "T32: 404 accepted - exit code" "0" "$?"
+
+# Test 33: 401 Unauthorized - must fail
+OUTPUT=$(validate_delete_response "401" 2>&1)
+EXIT_CODE=$?
+assert_fail_closed "T33: 401 unauthorized - fail closed" "$EXIT_CODE" ""
+assert_contains "T33: 401 mentions code" "401" "$OUTPUT"
+
+# Test 34: 403 Forbidden - must fail
+OUTPUT=$(validate_delete_response "403" 2>&1)
+EXIT_CODE=$?
+assert_fail_closed "T34: 403 forbidden - fail closed" "$EXIT_CODE" ""
+assert_contains "T34: 403 mentions code" "403" "$OUTPUT"
+
+# Test 35: 429 Too Many Requests - must fail
+OUTPUT=$(validate_delete_response "429" 2>&1)
+EXIT_CODE=$?
+assert_fail_closed "T35: 429 rate limited - fail closed" "$EXIT_CODE" ""
+assert_contains "T35: 429 mentions code" "429" "$OUTPUT"
+
+# Test 36: 500 Internal Server Error - must fail
+OUTPUT=$(validate_delete_response "500" 2>&1)
+EXIT_CODE=$?
+assert_fail_closed "T36: 500 server error - fail closed" "$EXIT_CODE" ""
+assert_contains "T36: 500 mentions code" "500" "$OUTPUT"
+
+# Test 37: 502 Bad Gateway - must fail
+OUTPUT=$(validate_delete_response "502" 2>&1)
+EXIT_CODE=$?
+assert_fail_closed "T37: 502 server error - fail closed" "$EXIT_CODE" ""
+assert_contains "T37: 502 mentions code" "502" "$OUTPUT"
+
+# Test 38: 503 Service Unavailable - must fail
+OUTPUT=$(validate_delete_response "503" 2>&1)
+EXIT_CODE=$?
+assert_fail_closed "T38: 503 server error - fail closed" "$EXIT_CODE" ""
+assert_contains "T38: 503 mentions code" "503" "$OUTPUT"
+
+# Test 39: 200 OK (unexpected for DELETE) - must fail
+OUTPUT=$(validate_delete_response "200" 2>&1)
+EXIT_CODE=$?
+assert_fail_closed "T39: 200 unexpected - fail closed" "$EXIT_CODE" ""
+
+# Test 40: 000 (connection failure / no response) - must fail
+OUTPUT=$(validate_delete_response "000" 2>&1)
+EXIT_CODE=$?
+assert_fail_closed "T40: 000 connection failure - fail closed" "$EXIT_CODE" ""
+
+# Test 41: empty string - must fail
+OUTPUT=$(validate_delete_response "" 2>&1)
+EXIT_CODE=$?
+assert_fail_closed "T41: empty code - fail closed" "$EXIT_CODE" ""
+
+# ============================================================================
+# Tests for validate_protected_exists (final verification HTTP code)
+# ============================================================================
+
+echo ""
+echo "=== Testing validate_protected_exists (final verification) ==="
+echo ""
+
+# Test 42: 200 OK - protected resource exists - accepted
+validate_protected_exists "200" >/dev/null 2>&1
+assert_eq "T42: 200 exists - exit code" "0" "$?"
+
+# Test 43: 404 Not Found - protected tag gone - must fail
+OUTPUT=$(validate_protected_exists "404" 2>&1)
+EXIT_CODE=$?
+assert_fail_closed "T43: 404 protected gone - fail closed" "$EXIT_CODE" ""
+assert_contains "T43: 404 mentions code" "404" "$OUTPUT"
+
+# Test 44: 500 server error during final verification - must fail
+OUTPUT=$(validate_protected_exists "500" 2>&1)
+EXIT_CODE=$?
+assert_fail_closed "T44: 500 verification server error - fail closed" "$EXIT_CODE" ""
+assert_contains "T44: 500 mentions code" "500" "$OUTPUT"
+
+# Test 45: 403 forbidden during final verification - must fail
+OUTPUT=$(validate_protected_exists "403" 2>&1)
+EXIT_CODE=$?
+assert_fail_closed "T45: 403 verification forbidden - fail closed" "$EXIT_CODE" ""
+assert_contains "T45: 403 mentions code" "403" "$OUTPUT"
+
+# Test 46: 000 connection failure during verification - must fail
+OUTPUT=$(validate_protected_exists "000" 2>&1)
+EXIT_CODE=$?
+assert_fail_closed "T46: 000 verification connection failure - fail closed" "$EXIT_CODE" ""
+
+# ============================================================================
 # Summary
 # ============================================================================
 
