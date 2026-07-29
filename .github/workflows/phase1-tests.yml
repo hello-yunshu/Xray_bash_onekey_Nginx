@@ -1,0 +1,33 @@
+name: Phase 1 Tests
+
+on:
+  push:
+    branches:
+      - main
+      - work/phase1-optimization
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: phase1-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Validate shell sources
+        run: |
+          set -euo pipefail
+          bash -n .github/scripts/release_cleanup.sh
+          bash -n .github/test/test_release_cleanup.sh
+          shellcheck -S error \
+            .github/scripts/release_cleanup.sh \
+            .github/test/test_release_cleanup.sh
+
+      - name: Run cleanup contract tests
+        run: bash .github/test/test_release_cleanup.sh
