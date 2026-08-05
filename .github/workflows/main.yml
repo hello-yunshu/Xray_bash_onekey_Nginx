@@ -760,7 +760,7 @@ jobs:
 
     - name: Fetch protected versions and compute cleanup plan
       run: |
-        # Source the cleanup decision logic (P0-E: protect tested_version)
+        # Source the cleanup decision logic (protects tested_version from deletion)
         source .github/scripts/release_cleanup.sh
 
         CURRENT_BUILD="${{ needs.check-versions.outputs.release_version }}"
