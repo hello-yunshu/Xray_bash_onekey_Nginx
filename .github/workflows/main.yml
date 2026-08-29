@@ -182,8 +182,19 @@ jobs:
     - name: Build and install Jemalloc
       run: |
         cd jemalloc-${{ env.JEMALLOC_VERSION }}
-        ./configure --enable-static --disable-shared --disable-cxx --prefix=/opt/jemalloc CFLAGS="-O3 -fPIC"
-        make -j$(($(nproc) + 1))
+        if ./configure --enable-static --disable-shared --disable-cxx --prefix=/opt/jemalloc CFLAGS="-O3 -fPIC"; then
+          :
+        else
+          rc=$?
+          echo "::error::Jemalloc configure failed"
+          if [ -f config.log ]; then
+            echo "::group::Jemalloc config.log"
+            cat config.log
+            echo "::endgroup::"
+          fi
+          exit "$rc"
+        fi
+        bash "$GITHUB_WORKSPACE/.github/scripts/make-with-diagnostic.sh"
         sudo make install
 
     - name: Check Jemalloc installation
@@ -211,8 +222,19 @@ jobs:
     - name: Build and install PCRE2
       run: |
         cd pcre2-${{ env.PCRE_VERSION }}
-        ./configure --prefix=/opt/pcre2 --enable-static --disable-shared --enable-jit CFLAGS="-O3 -fPIC"
-        make -j$(($(nproc) + 1))
+        if ./configure --prefix=/opt/pcre2 --enable-static --disable-shared --enable-jit CFLAGS="-O3 -fPIC"; then
+          :
+        else
+          rc=$?
+          echo "::error::PCRE2 configure failed"
+          if [ -f config.log ]; then
+            echo "::group::PCRE2 config.log"
+            cat config.log
+            echo "::endgroup::"
+          fi
+          exit "$rc"
+        fi
+        bash "$GITHUB_WORKSPACE/.github/scripts/make-with-diagnostic.sh"
         sudo make install
 
     - name: Check PCRE2 installation
@@ -241,8 +263,19 @@ jobs:
       run: |
         cd zlib-${{ env.ZLIB_VERSION }}
         export CFLAGS="-O3 -fPIC"
-        ./configure --prefix=/opt/zlib --static
-        make -j$(($(nproc) + 1))
+        if ./configure --prefix=/opt/zlib --static; then
+          :
+        else
+          rc=$?
+          echo "::error::zlib configure failed"
+          if [ -f config.log ]; then
+            echo "::group::zlib config.log"
+            cat config.log
+            echo "::endgroup::"
+          fi
+          exit "$rc"
+        fi
+        bash "$GITHUB_WORKSPACE/.github/scripts/make-with-diagnostic.sh"
         sudo make install
 
     - name: Check zlib installation
@@ -287,7 +320,7 @@ jobs:
         ld_opt="-L/opt/jemalloc/lib -L/opt/zlib/lib -L/opt/pcre2/lib -Wl,--whole-archive -ljemalloc -Wl,--no-whole-archive -lz -lpcre2-8 -lcrypt -lpthread -ldl -lm"
         openssl_opt="no-shared no-dso no-engine no-tests no-legacy"
 
-        ./configure --prefix=/usr/local/nginx \
+        if ./configure --prefix=/usr/local/nginx \
           --user=nobody \
           --group=nogroup \
           --with-http_ssl_module \
@@ -307,9 +340,22 @@ jobs:
           --with-cc-opt="$cc_opt" \
           --with-ld-opt="$ld_opt" \
           --with-openssl="$(pwd)/../openssl-${{ env.OPENSSL_VERSION }}" \
-          --with-openssl-opt="$openssl_opt"
+          --with-openssl-opt="$openssl_opt"; then
+          :
+        else
+          rc=$?
+          echo "::error::Nginx configure failed"
+          for diagnostic_file in config.log objs/autoconf.err; do
+            if [ -f "$diagnostic_file" ]; then
+              echo "::group::$diagnostic_file"
+              cat "$diagnostic_file"
+              echo "::endgroup::"
+            fi
+          done
+          exit "$rc"
+        fi
 
-        make -j$(($(nproc) + 1))
+        bash "$GITHUB_WORKSPACE/.github/scripts/make-with-diagnostic.sh"
         sudo make install
 
     - name: Check Nginx installation
