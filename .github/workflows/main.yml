@@ -12,6 +12,9 @@ concurrency:
   group: build-nginx-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   check-versions:
     runs-on: ubuntu-latest
@@ -29,7 +32,7 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@main
+      uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a # main @ 2026-11-05
 
     - name: Install dependencies
       run: |
@@ -99,7 +102,7 @@ jobs:
 
     - name: Upload current version metadata
       if: ${{ steps.compare_versions.outputs.should_run_build == 'true' || github.event_name == 'workflow_dispatch' }}
-      uses: actions/upload-artifact@main
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # main @ 2026-11-05
       with:
         name: current-versions
         path: .github/current_versions.json
@@ -129,7 +132,7 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@main
+      uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a # main @ 2026-11-05
 
     - name: Set build metadata
       run: |
@@ -145,7 +148,7 @@ jobs:
 
     - name: Cache OpenSSL
       id: cache-openssl
-      uses: actions/cache@main
+      uses: actions/cache@3edfce9056124e459a23f683a21433670d47daca # main @ 2026-11-05
       with:
         path: |
           ./openssl-${{ env.OPENSSL_VERSION }}/
@@ -167,7 +170,7 @@ jobs:
 
     - name: Cache Jemalloc
       id: cache-jemalloc
-      uses: actions/cache@main
+      uses: actions/cache@3edfce9056124e459a23f683a21433670d47daca # main @ 2026-11-05
       with:
         path: |
           ./jemalloc-${{ env.JEMALLOC_VERSION }}/
@@ -207,7 +210,7 @@ jobs:
 
     - name: Cache PCRE2
       id: cache-pcre2
-      uses: actions/cache@main
+      uses: actions/cache@3edfce9056124e459a23f683a21433670d47daca # main @ 2026-11-05
       with:
         path: |
           ./pcre2-${{ env.PCRE_VERSION }}/
@@ -247,7 +250,7 @@ jobs:
 
     - name: Cache zlib
       id: cache-zlib
-      uses: actions/cache@main
+      uses: actions/cache@3edfce9056124e459a23f683a21433670d47daca # main @ 2026-11-05
       with:
         path: |
           ./zlib-${{ env.ZLIB_VERSION }}/
@@ -288,7 +291,7 @@ jobs:
 
     - name: Cache Nginx
       id: cache-nginx
-      uses: actions/cache@main
+      uses: actions/cache@3edfce9056124e459a23f683a21433670d47daca # main @ 2026-11-05
       with:
         path: |
           ./nginx-${{ env.NGINX_VERSION }}/
@@ -660,7 +663,7 @@ jobs:
           }' > "build-metadata-${{ matrix.arch }}.json"
 
     - name: Upload artifact
-      uses: actions/upload-artifact@main
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # main @ 2026-11-05
       with:
         name: xray-nginx-custom-${{ matrix.arch }}
         path: |
@@ -689,7 +692,7 @@ jobs:
         } >> "$GITHUB_ENV"
 
     - name: Download build artifacts
-      uses: actions/download-artifact@main
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # main @ 2026-11-05
       with:
         path: artifacts
         pattern: xray-nginx-custom-*
@@ -769,10 +772,10 @@ jobs:
       contents: write
     steps:
     - name: Checkout repository
-      uses: actions/checkout@main
+      uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a # main @ 2026-11-05
 
     - name: Download current version metadata
-      uses: actions/download-artifact@main
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # main @ 2026-11-05
       with:
         name: current-versions
         path: current-versions
